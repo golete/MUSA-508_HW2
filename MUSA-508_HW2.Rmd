@@ -1,6 +1,6 @@
 ---
 title: "MUSA 508, Hedonic Home Price Prediction"
-author: "Ericsson, E. & León, A."
+author: "Ericson, E. & León, A."
 output: html_document
   code_folding: hide
 ---
