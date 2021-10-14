@@ -8,7 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-# Load some libraries
+# Load libraries
 
 library(tidyverse)
 library(tidycensus)
@@ -23,6 +23,7 @@ library(ggcorrplot)
 library(kableExtra)
 library(jtools)     # for regression model plots
 library(ggstance) # to support jtools plots
+library(mapview)
 
 # functions and data directory
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
@@ -38,12 +39,46 @@ source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-L
 
 ```{r house value data}
 
-
 dataset <- 
-  st_read("studentData.geojson") %>%
+  st_read("studentData.geojson") #%>%
   #st_transform('ESRI:102286')
 
-dataset$geometry
+mapview(dataset$geometry)
+
+varsA <- c('price',
+           'saleDate',
+           'year',
+           'year_quarter',
+           'designCode',
+           'designCodeDscr',
+           'qualityCode',
+           'qualityCodeDscr',
+           'bldgClass',
+           'bldgClassDscr',
+           'ConstCodeDscr',
+           'builtYear',
+           'EffectiveYear',
+           'carStorageSF',
+           'carStorageType',
+           'carStorageTypeDscr',
+           'nbrBedRoom',
+           'mainfloorSF',
+           'nbrFullBaths',
+           'nbrHalfBaths',
+           'TotalFinishedSF',
+           'ExtWallPrim',
+           'ExtWallDscrPrim',
+           'Stories',
+           'MUSA_ID',
+           'geometry'
+           )
+
+glimpse(dataset)
+
+house <- dataset %>%
+  select(varsA)
+
+??all_of
 
 
 ```
@@ -71,16 +106,15 @@ county <- 013
 acsVariableList <- load_variables(year,"acs5",cache = TRUE)
 
 
-acsVars <- c('B25003_001E', # Total housing units
-             'B25003_002E', # Total owner-occupied
-             'B25003A_001', # Total white households
-             'B25003A_002', # Total white owner occupied households
-             'B25002_003E') # Total vacant housing units
-
+varsC <- c('B25003_001E', # Total housing units
+           'B25003_002E', # Total owner-occupied
+           'B25003A_001', # Total white households
+           'B25003A_002', # Total white owner occupied households
+           'B25002_003E') # Total vacant housing units
 
 tracts <- 
   get_acs(geography = "tract",
-          variables = acsVars,
+          variables = varsC,
           year = year,
           state = state,
           county = county,
@@ -92,10 +126,32 @@ tracts <-
 
 ```
 
+
 ```{r other data}
 
 # CRIME, FEMA, Airport influence, etc.
 
+wildfires <-
+  st_read('Wildfire_History.geojson') %>%
+  select(-Shapearea, -Shapelen, -LABELNAME, -STARTDATE)
+
+# mapview(wildfires)
+
+floodplains <- 
+  st_read('Floodplain_-_BC_Regulated.geojson') %>%
+  select(OBJECTID,
+         FLD_AR_ID,
+         STUDY_TYP,
+         ZONE_SUBTY,
+         FLD_ZONE,
+         DUAL_ZONE,
+         geometry)
+unique(floodplains$ZONE_SUBTY)
+
+# SFHA means Special Flood Hazard Area
+
+a <- floodplains$geometry
+mapview(a)
 
 ```
 
@@ -109,6 +165,7 @@ wholefoods <- st_read("wholefoodsmarkets_boulderCO.csv") %>%
   dplyr::select(-phone) %>%
   st_as_sf(coords= c('lat','lon'), crs = 4269)
 
+mapview(wholefoods)
 
 ```
 
