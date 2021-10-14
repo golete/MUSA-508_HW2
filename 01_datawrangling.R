@@ -106,28 +106,50 @@ acsVariableList <- load_variables(year,"acs5",cache = TRUE)
 # TODO: Select variables for analysis
 
 # define variables to import
-acsVars <- c('B25003_001E', # Total housing units
-             'B25003_002E', # Total owner-occupied
-             'B25003A_001', # Total white households
-             'B25003A_002', # Total white owner occupied households
-             'B25002_003E') # Total vacant housing units
+varsC <- c('B25003_001E', # Total housing units
+           'B25003_002E', # Total owner-occupied
+           'B25003A_001E', # Total white households
+           'B25002_003E', # Total vacant housing units
+           'B17019_001E', # Total Households
+           'B17019_002E', # Total Households income below poverty line
+           'B15003_001E', # Total education
+           'B15003_022E', # Bachelor's degree
+           'B15003_023E', # Master's degree
+           'B15003_024E', # Professional school degree
+           'B15003_025E'  # Doctorate degree
+           )
+
+
 pov <- acsVariableList %>%
-  filter(grepl('POVERTY STATUS', concept))
+  filter(grepl('POVERTY', concept))
 unique(pov$concept)
-
-
-length(acsVariableList$name)
 
 
 # import variables
 tracts <- 
   get_acs(geography = "tract",
-          variables = acsVars,
+          variables = varsC,
           year = year,
           state = state,
           county = county,
           geometry = T,
-          output = 'wide') #%>%
+          output = 'wide') %>%
+  dplyr::select(-ends_with('M')) %>%
+  rename(HHtotal = B25003_001E,
+         HHownerOc = B25003_002E,
+         HHwhite = B25003A_001E, # Total white households
+         HHvacant = B25002_003E, # Total vacant housing units
+         IncomePOV = C17002_001E, # Total income below poverty level
+         EduTotal = B15003_001E, # Total education
+         EduBachs = B15003_022E, # Bachelor's degree
+         EduMasts = B15003_023E, # Master's degree
+         EduProfs = B15003_024E, # Professional school degree
+         EduDocts = B15003_025E # Doctorate degree
+         ) %>%
+  mutate(PCTHHowner = HHownerOc/HHtotal) %>%
+  mutate(PCTHHwhite = HHwhite/HHtotal) %>%
+  mutate(PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal) %>%
+  select(-HHownerOc,-HHwhite,-starts_with('Edu'))
 
 st_crs(tracts$geometry) # CRS: ESPG 4269, NAD84 metres
 

@@ -60,3 +60,52 @@ POPULATION VARIABLES
   WEEKS WORKED IN THE PAST 12 MONTHS 
   WORK EXPERIENCE 
   WORK STATUS IN THE PAST 12 MONTHS 
+  
+  
+                                                                                                                                                   
+  [23] "POVERTY STATUS IN THE PAST 12 MONTHS OF INDIVIDUALS BY SEX BY EDUCATIONAL ATTAINMENT"                                                                                                                    
+  [25] "POVERTY STATUS IN THE PAST 12 MONTHS OF INDIVIDUALS BY SEX BY EMPLOYMENT STATUS"                                                                                                                         
+  [43] "POVERTY STATUS IN THE PAST 12 MONTHS OF FAMILIES BY FAMILY TYPE BY WORK EXPERIENCE OF HOUSEHOLDER AND SPOUSE"                                                                                            
+  [45] "POVERTY STATUS IN THE PAST 12 MONTHS OF FAMILIES BY HOUSEHOLD TYPE BY EDUCATIONAL ATTAINMENT OF HOUSEHOLDER"                                                                                             
+  [46] "POVERTY STATUS IN THE PAST 12 MONTHS OF FAMILIES BY HOUSEHOLD TYPE BY TENURE"                                                                                                                            
+  [47] "POVERTY STATUS IN THE PAST 12 MONTHS BY AGE"
+  [57] "POVERTY STATUS OF INDIVIDUALS IN THE PAST 12 MONTHS BY LIVING ARRANGEMENT"             
+  
+  5
+  C17002_001
+  Estimate!!Total:
+    RATIO OF INCOME TO POVERTY LEVEL IN THE PAST 12 MONTHS
+  286
+  C17002_002
+  Estimate!!Total:!!Under .50
+  RATIO OF INCOME TO POVERTY LEVEL IN THE PAST 12 MONTHS
+  287
+  C17002_003
+  Estimate!!Total:!!.50 to .99
+  RATIO OF INCOME TO POVERTY LEVEL IN THE PAST 12 MONTHS
+  288
+  C17002_004
+  Estimate!!Total:!!1.00 to 1.24
+  RATIO OF INCOME TO POVERTY LEVEL IN THE PAST 12 MONTHS
+  289
+  C17002_005
+  Estimate!!Total:!!1.25 to 1.49
+  RATIO OF INCOME TO POVERTY LEVEL IN THE PAST 12 MONTHS
+  290
+  C17002_006
+  Estimate!!Total:!!1.50 to 1.84
+  RATIO OF INCOME TO POVERTY LEVEL IN THE PAST 12 MONTHS
+  291
+  C17002_007
+  Estimate!!Total:!!1.85 to 1.99
+  RATIO OF INCOME TO POVERTY LEVEL IN THE PAST 12 MONTHS
+  292
+  C17002_008
+  
+  
+  
+  
+'B15003_022', # Estimate!!Total:!!Bachelor's degree
+'B15003_023', # Estimate!!Total:!!Master's degree
+'B15003_024', # Estimate!!Total:!!Professional school degree
+'B15003_025', # Estimate!!Total:!!Doctorate degree
