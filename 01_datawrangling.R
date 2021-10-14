@@ -51,8 +51,7 @@ varsA <- c('price',
            'nbrHalfBaths',      # Number of half baths
            'TotalFinishedSF',   # Total area (sq foot)
            'MUSA_ID',
-           'geometry'
-)
+           'geometry')
 
 # designCodeDscr
 #   "1 Story - Ranch"
@@ -79,8 +78,8 @@ varsA <- c('price',
 #   "Precast" 
 
 
-house <- dataset %>%
-  select(varsA)
+house <- data %>%
+  dplyr::select(varsA)
 
 
 
@@ -100,6 +99,11 @@ house <- dataset %>%
 # NOTE: Set overwrite to "false" to prevent overwriting my own key locally -EE
 census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
 
+
+year <- 2019
+state <- 08
+county <- 13
+
 # review available variables
 acsVariableList <- load_variables(year,"acs5",cache = TRUE)
 
@@ -110,8 +114,19 @@ varsC <- c('B25003_001E', # Total housing units
            'B25003_002E', # Total owner-occupied
            'B25003A_001E', # Total white households
            'B25002_003E', # Total vacant housing units
-           'B17019_001E', # Total Households
-           'B17019_002E', # Total Households income below poverty line
+           'B17026_001E', # Ratio of income to poverty Total
+           'B17026_002E', # Ratio of income to poverty under 0.50
+           'B17026_003E', # Ratio of income to poverty .50 to .74
+           'B17026_004E', # Ratio of income to poverty .75 to .99
+           'B17026_005E', # Ratio of income to poverty 1.00 to 1.24
+           'B17026_006E', # Ratio of income to poverty 1.25 to 1.49
+           'B17026_007E', # Ratio of income to poverty 1.50 to 1.74
+           'B17026_008E', # Ratio of income to poverty 1.75 to 1.84
+           'B17026_009E', # Ratio of income to poverty 1.85 to 1.99
+           'B17026_010E', # Ratio of income to poverty 2.00 to 2.99
+           'B17026_011E', # Ratio of income to poverty 3.00 to 3.99
+           'B17026_012E', # Ratio of income to poverty 4.00 to 4.99
+           'B17026_013E', # Ratio of income to poverty 5.00 and more
            'B15003_001E', # Total education
            'B15003_022E', # Bachelor's degree
            'B15003_023E', # Master's degree
@@ -139,7 +154,6 @@ tracts <-
          HHownerOc = B25003_002E,
          HHwhite = B25003A_001E, # Total white households
          HHvacant = B25002_003E, # Total vacant housing units
-         IncomePOV = C17002_001E, # Total income below poverty level
          EduTotal = B15003_001E, # Total education
          EduBachs = B15003_022E, # Bachelor's degree
          EduMasts = B15003_023E, # Master's degree
@@ -149,6 +163,7 @@ tracts <-
   mutate(PCTHHowner = HHownerOc/HHtotal) %>%
   mutate(PCTHHwhite = HHwhite/HHtotal) %>%
   mutate(PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal) %>%
+  mutate(PCTbel150pov = (B17026_002E+B17026_003E+B17026_004E+B17026_005E+B17026_006E+B17026_007E)/B17026_001E) %>%
   select(-HHownerOc,-HHwhite,-starts_with('Edu'))
 
 st_crs(tracts$geometry) # CRS: ESPG 4269, NAD84 metres
