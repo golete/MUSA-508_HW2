@@ -28,22 +28,22 @@ library(mapview)
 
 # read in home value data
 
-dataset <- st_read("studentData.geojson")
+data <- st_read("studentData.geojson")
 
-st_crs(dataset$geometry)
+st_crs(data$geometry)
 # ESPG 4326 in meters
 
-unique(dataset$'ConstCodeDscr')
+unique(data$'ConstCodeDscr')
 
 varsA <- c('price',
-           'year_quarter',      # Time of sell
+           'year_quarter',      # Time of sale
            'designCode',        # Type of property
            'designCodeDscr',    
            'qualityCode',       # Condition
            'qualityCodeDscr',
            'ConstCodeDscr',     # Materiality
            'builtYear',         # Year Built
-           'EffectiveYear',     # Year Last Renovates
+           'EffectiveYear',     # Year of Last Major Renovation
            'carStorageSF',      # Garage area
            'nbrRoomsNobath',    # Number of rooms (excluding bathrooms)
            'nbrBedRoom',        # Number of bedrooms
