@@ -1,0 +1,99 @@
+---
+title: "Predictive Modeling of Boulder Home Prices"
+author: "Ericson, E. & León, A."
+date: "10/14/2021"
+output: html_document
+code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+> What is the purpose of this project? Why should we care about it? What makes this a difficult exercise? What is your overall modeling strategy? Briefly summarize your results.
+
+# Data
+
+## Data Collection
+
+> Briefly describe your methods for gathering the data.
+
+## Summary Statistics
+
+> Present a table of summary statistics with variable descriptions. Sort these variables by their category (internal characteristics, amenities/public services or spatial structure). Check out the `stargazer` package for this.
+
+## Correlation Matrix
+
+> Present a correlation matrix
+
+## Interesting Correlations
+
+> Present 4 home price correlation scatterplots that you think are of interest. I’m going to look for **interesting open data** that you’ve integrated with the home sale observations.
+
+## Spatial Distribution of Sale Prices
+
+> Develop 1 map of your dependent variable (sale price)
+
+## Spatial Distribution of Predictors
+
+> Develop 3 maps of 3 of your most interesting independent variables.
+
+## Additional Visualizations
+
+> Include any other maps/graphs/charts you think might be of interest.
+
+# Methods
+
+> Briefly describe your method (remember who your audience is).
+
+# Results
+
+> Split the ‘toPredict’ == 0 into a separate training and test set using a 75/25 split.
+
+## Regression Results
+
+> Provide a **polished table** of your (training set) lm summary results (coefficients, R2 etc).
+
+## MAE and MAPE
+
+> Provide a **polished table** of mean absolute error and MAPE for a single **test set**. Check out the “kable” function for markdown to create nice tables.
+
+## Cross-Validation Results
+
+> Provide the results of your cross-validation tests. This includes mean and standard deviation MAE. Do **100 folds** and plot your cross-validation MAE as a histogram. Is your model generalizable to new data?
+
+## Predicted vs. Observed Prices
+
+> Plot predicted prices as a function of observed prices
+
+## Residuals, Moran's I, and Spatial Lag
+
+> Provide a map of your residuals for your **test set**. **Include a Moran’s I test and a plot** of the spatial lag in errors.
+
+## Map of Predicted Values
+
+> Provide a map of your predicted values for where ‘toPredict’ is **both** 0 and 1.
+
+## MAPE by Neighborhood
+
+### Map
+
+> Using the **test set** predictions, provide a map of mean absolute percentage error (MAPE) by neighborhood.
+
+### Scatterplot
+
+> Provide a scatterplot plot of MAPE by neighborhood as a function of mean price by neighborhood.
+
+## Generalizability Across Groups
+
+> Using tidycensus, split your city into two groups (perhaps by race or income) and test your model’s generalizability. Is your model generalizable?
+
+# Discussion
+
+> Is this an effective model? What were some of the more interesting variables? How much of the variation in prices could you predict? Describe the more important features? Describe the error in your predictions? According to your maps, could you account the spatial variation in prices? Where did the model predict particularly well? Poorly? Why do you think this might be?
+
+# Conclusion
+
+> Would you recommend your model to Zillow? Why or why not? How might you improve this model?
