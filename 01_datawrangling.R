@@ -24,43 +24,61 @@ library(mapview)
 
 # --- DATA WRANGLING ---
 
-# 1. HOME VALUE DATA
+# A. HOME VALUE DATA
 
 # read in home value data
-data <- st_read("studentData.geojson")
 
+dataset <- st_read("studentData.geojson")
 
-mapview(dataset$geometry)
+st_crs(dataset$geometry)
+# ESPG 4326 in meters
+
+unique(dataset$'ConstCodeDscr')
 
 varsA <- c('price',
-           'saleDate',
-           'year',
-           'year_quarter',
-           'designCode',
-           'designCodeDscr',
-           'qualityCode',
+           'year_quarter',      # Time of sell
+           'designCode',        # Type of property
+           'designCodeDscr',    
+           'qualityCode',       # Condition
            'qualityCodeDscr',
-           'bldgClass',
-           'bldgClassDscr',
-           'ConstCodeDscr',
-           'builtYear',
-           'EffectiveYear',
-           'carStorageSF',
-           'carStorageType',
-           'carStorageTypeDscr',
-           'nbrBedRoom',
-           'mainfloorSF',
-           'nbrFullBaths',
-           'nbrHalfBaths',
-           'TotalFinishedSF',
-           'ExtWallPrim',
-           'ExtWallDscrPrim',
-           'Stories',
+           'ConstCodeDscr',     # Materiality
+           'builtYear',         # Year Built
+           'EffectiveYear',     # Year Last Renovates
+           'carStorageSF',      # Garage area
+           'nbrRoomsNobath',    # Number of rooms (excluding bathrooms)
+           'nbrBedRoom',        # Number of bedrooms
+           'nbrFullBaths',      # Number of full baths
+           'nbrHalfBaths',      # Number of half baths
+           'TotalFinishedSF',   # Total area (sq foot)
            'MUSA_ID',
            'geometry'
 )
 
-glimpse(dataset)
+
+# designCodeDscr
+#   "1 Story - Ranch"
+#   "Bi-level"
+#   "Split-level"
+#   "2-3 Story"
+#   "MULTI STORY- TOWNHOUSE"
+
+# qualityCodeDscr
+#   "EXCEPTIONAL 2 ", "EXCEPTIONAL 1 ",
+#   "EXCELLENT++ "   "EXCELLENT + ", "EXCELLENT "
+#   "VERY GOOD ++ ", "VERY GOOD + ", "VERY GOOD ",
+#   "GOOD ++ ", "GOOD + ", "GOOD ",
+#   "AVERAGE ++ ", "AVERAGE + ", "AVERAGE ",
+#   "FAIR ","LOW "
+
+# ConstCodeDescr
+#   "Frame"
+#   "Masonry"
+#   "Wood"
+#   "Brick"
+#   "Concrete"
+#   "Veneer"
+#   "Precast" 
+
 
 house <- dataset %>%
   select(varsA)
@@ -68,15 +86,16 @@ house <- dataset %>%
 
 
 
-# TODO: Figure out projection
-
-# BOUNDARY DATA
+# B. BOUNDARY DATA (Neighborhoods, school districts, city, etc.)
 
 # TODO: Boulder city and county boundaries
 # TODO: Neighborhood boundaries
 # TODO: School district boundaries
 
-# 2. CENSUS DATA
+
+
+
+# C. CENSUS DATA
 
 # set API key
 # NOTE: Set overwrite to "false" to prevent overwriting my own key locally -EE
@@ -103,49 +122,67 @@ tracts <-
           county = county,
           geometry = T,
           output = 'wide') #%>%
-# st_transform('ESRI:102635')
 
-# TODO: Figure out projection
+st_crs(tracts$geometry) # CRS: ESPG 4269, NAD84 metres
 
-# 3. OTHER DATA (CRIME, FEMA, etc.)
 
-# TODO: Wildfire history data
+
+
+# D. OTHER DATA (CRIME, FEMA, etc.)
+
+# D1. Wildfire history data
 
 wildfires <-
   st_read('Wildfire_History.geojson') %>%
   select(-Shapearea, -Shapelen, -LABELNAME, -STARTDATE)
+st_crs(wildfires$geometry) # CRS: EPSG 4326, metres
 
 # mapview(wildfires)
 
 
-# TODO: FEMA flood insurance maps
+# D2. CHAMP floodplain maps
 
 floodplains <- 
   st_read('Floodplain_-_BC_Regulated.geojson') %>%
-  select(OBJECTID,
-         FLD_AR_ID,
-         STUDY_TYP,
-         ZONE_SUBTY,
-         FLD_ZONE,
-         DUAL_ZONE,
+  select(FLD_AR_ID, # Primary key for table lookup.
+         SFHA_TF, #Special Flood Hazard Area. If the area is within the SFHA, this field would be true any area that is coded for any A or V zone flood areas. It should be false for all other flood zone areas. Acceptable values for this field are listed in the D_TrueFalse table.
+         FLD_ZONE, #Flood Zone. This is a flood zone designation. These zones are used by FEMA to designate the SFHAs and for Acceptable values for this field are listed in the D_Zone table. 
+         ZONE_SUBTY, #Flood Zone Type. Flood Zone areas that will remain free of development to moderate increases in flood heights due to encroachment on the floodplain. Acceptable values for this field are listed in the D_ ZONE_SUBTY table. 
          geometry)
+st_crs(floodplains) # CRS: EPSG 4326, WGS 84, metres
 
-
-unique(floodplains$ZONE_SUBTY)
+# METADATA from https://www.hsdl.org/?view&did=7705
 
 # SFHA means Special Flood Hazard Area
+#  TRUE, FALSE or NA
 
-a <- floodplains$geometry
-mapview(a)
+# FLD_ZONE        High-risk areas have at least a 1% annual chance of flooding.  This flood is also referred to as the Base Flood.  Flood insurance is required for structures in these high-risk areas if they have a federally-backed mortgage.
+#  ZONE AE        Area inundated by the Base Flood with Base Flood Elevations determined.
+#  ZONE AH        Area inundated by the Base Flood with flood depths of 1 to 3 feet (usually areas of ponding); Base Flood Elevations determined.
+#  ZONE AO        Area inundated by the Base Flood with flood depths of 1 to 3 feet (usually sheet flow on sloping terrain); average depths determined. For areas of alluvial fan flooding, velocities are also determined.
+#  ZONE X (0.2%)  This zone designation is for multiple risks including areas of the 0.2% annual chance flood; areas of the 1% annual chance flood with average depths of less than 1 foot or with drainage areas less than 1 square mile; and areas protected by levees from the 1% annual chance flood.
+#  ZONE X         Areas determined to be outside the 0.2% annual chance floodplain. 
+
+# ZONE_SUBTY
+#  0500 0.2 PCT ANNUAL CHANCE FLOOD HAZARD FIRM
+#  1000 AREA WITH REDUCED FLOOD RISK DUE TO LEVEE FIRM
+#  1100 FLOODWAY 
+#  2000 AREA OF MINIMAL FLOOD HAZARD 
+
+mapview(floodplains$geometry)
+
+
+# D3. FEMA flood insurance map
+
 
 
 # TODO: Figure out others
 
 
 
-# 4. EXPERIMENTAL DATA
+# E. EXPERIMENTAL DATA
 
-# Whole Foods locations
+# E1. Whole Foods locations
 wholefoods <- st_read("wholefoodsmarkets_boulderCO.csv") %>%
   dplyr::select(-phone) %>%
   st_as_sf(coords= c('lat','lon'), crs = 4269)
