@@ -54,7 +54,6 @@ varsA <- c('price',
            'geometry'
 )
 
-
 # designCodeDscr
 #   "1 Story - Ranch"
 #   "Bi-level"
@@ -112,6 +111,13 @@ acsVars <- c('B25003_001E', # Total housing units
              'B25003A_001', # Total white households
              'B25003A_002', # Total white owner occupied households
              'B25002_003E') # Total vacant housing units
+pov <- acsVariableList %>%
+  filter(grepl('POVERTY STATUS', concept))
+unique(pov$concept)
+
+
+length(acsVariableList$name)
+
 
 # import variables
 tracts <- 
@@ -135,6 +141,9 @@ st_crs(tracts$geometry) # CRS: ESPG 4269, NAD84 metres
 wildfires <-
   st_read('Wildfire_History.geojson') %>%
   select(-Shapearea, -Shapelen, -LABELNAME, -STARTDATE)
+
+# ENDDATE -- FILTER to only fires that happened after 2000? 2010?
+
 st_crs(wildfires$geometry) # CRS: EPSG 4326, metres
 
 # mapview(wildfires)
