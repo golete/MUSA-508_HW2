@@ -48,6 +48,7 @@ varsA <- c('price',
            'nbrRoomsNobath',    # Number of rooms (excluding bathrooms)
            'nbrBedRoom',        # Number of bedrooms
            'nbrFullBaths',      # Number of full baths
+           'nbrThreeQtrBaths',   # Number of three quarter baths
            'nbrHalfBaths',      # Number of half baths
            'TotalFinishedSF',   # Total area (sq foot)
            'MUSA_ID',
@@ -77,19 +78,135 @@ varsA <- c('price',
 #   "Veneer"
 #   "Precast" 
 
-
 house <- data %>%
-  dplyr::select(varsA)
-
+  dplyr::select(varsA) %>%
+  mutate(nbrRooms = nbrRoomsNobath+nbrFullBaths+(nbrThreeQtrBaths+nbrHalfBaths)/2)
+  
+hist(house$nbrRooms)
 
 
 
 # B. BOUNDARY DATA (Neighborhoods, school districts, city, etc.)
 
 # TODO: Boulder city and county boundaries
-# TODO: Neighborhood boundaries
-# TODO: School district boundaries
 
+munis <- st_read('Municipalities.geojson') %>%
+  select(ZONEDESC, geometry)
+
+st_crs(munis)
+# CRS: EPSG: 4326, WGS84, metres
+mapview(munis)
+
+
+
+# TODO: Neighborhood boundaries
+
+
+zones <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
+  select(OBJECTID, ZONEDESC, geometry) %>%
+  group_by(ZONEDESC)
+
+st_crs(zones)
+# CRS: EPSG: 4326, WGS84, metres
+
+zonelist <-  unique(zones$ZONEDESC)
+
+
+businessZone <- zones %>%
+  filter(ZONEDESC == zonelist[1])
+
+subResZone <- zones %>%
+  filter(ZONEDESC == zonelist[2])
+
+commercialZone <- zones %>%
+  filter(ZONEDESC == zonelist[3])
+
+transZone <- zones %>%
+  filter(ZONEDESC == zonelist[4])
+
+manufZone <- zones %>%
+  filter(ZONEDESC == zonelist[5])
+
+lightIndZone <- zones %>%
+  filter(ZONEDESC == zonelist[6])
+
+multFamZone <- zones %>%
+  filter(ZONEDESC == zonelist[7])
+
+econDevZone <- zones %>%
+  filter(ZONEDESC == zonelist[8])
+
+industZone <- zones %>%
+  filter(ZONEDESC == zonelist[9])
+
+aggrZone <- zones %>%
+  filter(ZONEDESC == zonelist[10])
+
+rurResZone <- zones %>%
+  filter(ZONEDESC == zonelist[11])
+
+estateResZone <- zones %>%
+  filter(ZONEDESC == zonelist[12])
+
+forestZone <- zones %>%
+  filter(ZONEDESC == zonelist[13])
+
+Niwot1Zone <- zones %>%
+  filter(ZONEDESC == zonelist[14])
+
+Niwot2Zone <- zones %>%
+  filter(ZONEDESC == zonelist[15])
+
+MountainZone <- zones %>%
+  filter(ZONEDESC == zonelist[16])
+
+Louisville <- zones %>%
+  filter(ZONEDESC == zonelist[17])
+
+Ward <- zones %>%
+  filter(ZONEDESC == zonelist[18])
+
+Jamestown <- zones %>%
+  filter(ZONEDESC == zonelist[19])
+
+Historic <- zones %>%
+  filter(ZONEDESC == zonelist[20])
+
+Nederland <- zones %>%
+  filter(ZONEDESC == zonelist[21])
+
+Boulder <- zones %>%
+  filter(ZONEDESC == zonelist[22])
+
+Erie <- zones %>%
+  filter(ZONEDESC == zonelist[23])
+
+Lafayette <- zones %>%
+  filter(ZONEDESC == zonelist[24])
+
+Longmont <- zones %>%
+  filter(ZONEDESC == zonelist[25])
+
+Lyons <- zones %>%
+  filter(ZONEDESC == zonelist[26])
+
+Superior <- zones %>%
+  filter(ZONEDESC == zonelist[27])
+
+mapview(Boulder)
+
+
+
+
+
+
+for (i in length(zonelist)) {
+  append
+}
+
+
+
+# TODO: School district boundaries
 
 
 
@@ -163,8 +280,10 @@ tracts <-
   mutate(PCTHHowner = HHownerOc/HHtotal) %>%
   mutate(PCTHHwhite = HHwhite/HHtotal) %>%
   mutate(PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal) %>%
-  mutate(PCTbel150pov = (B17026_002E+B17026_003E+B17026_004E+B17026_005E+B17026_006E+B17026_007E)/B17026_001E) %>%
-  select(-HHownerOc,-HHwhite,-starts_with('Edu'))
+  mutate(PCTbel125pov = (B17026_002E+B17026_003E+B17026_004E+B17026_005E)/B17026_001E) %>%
+  mutate(PCT125185pov = (B17026_006E+B17026_007E+B17026_008E)/B17026_001E) %>%
+  mutate(PCT185300pov = (B17026_009E+B17026_010E)/B17026_001E) %>%
+  select(-HHownerOc,-HHwhite,-starts_with('Edu'), -starts_with('B17026'))
 
 st_crs(tracts$geometry) # CRS: ESPG 4269, NAD84 metres
 
