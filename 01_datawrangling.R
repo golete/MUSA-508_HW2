@@ -107,102 +107,46 @@ st_crs(munis)
 # B2. Boulder city and other cities/zones boundaries
 
 zones <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
-  select(ZONEDESC, geometry) 
+  select(ZONEDESC, geometry) %>%
+  filter(ZONEDESC != 'Boulder') %>%
+  group_by(ZONEDESC) %>%
+  rename(SUBCOMMUNITY = ZONEDESC) %>%
+  summarize(geometry = st_union(geometry))
 st_crs(zones)
 # CRS: EPSG: 4326, WGS84, metres
 
-zonelist <-  unique(zones$ZONEDESC)
-
-businessZone <- zones %>%
-  filter(ZONEDESC == zonelist[1])
-subResZone <- zones %>%
-  filter(ZONEDESC == zonelist[2])
-commercialZone <- zones %>%
-  filter(ZONEDESC == zonelist[3])
-transZone <- zones %>%
-  filter(ZONEDESC == zonelist[4])
-manufZone <- zones %>%
-  filter(ZONEDESC == zonelist[5])
-lightIndZone <- zones %>%
-  filter(ZONEDESC == zonelist[6])
-multFamZone <- zones %>%
-  filter(ZONEDESC == zonelist[7])
-econDevZone <- zones %>%
-  filter(ZONEDESC == zonelist[8])
-industZone <- zones %>%
-  filter(ZONEDESC == zonelist[9])
-aggrZone <- zones %>%
-  filter(ZONEDESC == zonelist[10])
-rurResZone <- zones %>%
-  filter(ZONEDESC == zonelist[11])
-estateResZone <- zones %>%
-  filter(ZONEDESC == zonelist[12])
-forestZone <- zones %>%
-  filter(ZONEDESC == zonelist[13])
-Niwot1Zone <- zones %>%
-  filter(ZONEDESC == zonelist[14])
-Niwot2Zone <- zones %>%
-  filter(ZONEDESC == zonelist[15])
-MountainZone <- zones %>%
-  filter(ZONEDESC == zonelist[16])
-
-Louisville <- zones %>%
-  filter(ZONEDESC == zonelist[17])
-Ward <- zones %>%
-  filter(ZONEDESC == zonelist[18])
-Jamestown <- zones %>%
-  filter(ZONEDESC == zonelist[19])
-Historic <- zones %>%
-  filter(ZONEDESC == zonelist[20])
-Nederland <- zones %>%
-  filter(ZONEDESC == zonelist[21])
-Boulder <- zones %>%
-  filter(ZONEDESC == zonelist[22])
-Erie <- zones %>%
-  filter(ZONEDESC == zonelist[23])
-Lafayette <- zones %>%
-  filter(ZONEDESC == zonelist[24])
-Longmont <- zones %>%
-  filter(ZONEDESC == zonelist[25])
-Lyons <- zones %>%
-  filter(ZONEDESC == zonelist[26])
-Superior <- zones %>%
-  filter(ZONEDESC == zonelist[27])
-
-Municipalities<- zones %>%
-  filter(ZONEDESC %in% zonelist[16:27])
-unincorporatedZones<- zones %>%
-  filter(ZONEDESC %in% zonelist[1:16])
-mapview(unincorporatedZones)
-
-
+notCity <- zones %>% st_union
+mapview(notCity)
 
 # B3. Boulder City Zoning Districts
 
-cityHoods <- st_read('Zoning_Districts.geojson') %>%
+districts <- st_read('Zoning_Districts.geojson') %>%
   select(OBJECTID, ZONING, ZNDESC, geometry)
-st_crs(cityHoods)
+st_crs(districts)
 # CRS: EPSG: 4326, WGS84, metres
 
-cx <- cityHoods %>% select(ZONING, geometry)
-mapview(cx)
 
-
-unique(cityHoods$ZONINGDISTPURPOSE)
-glimpse(cityHoods)
-mapview(cityHoods)
-
-
+# Load the subcommunities / neighborhoods rough boundaries
 subcomms <-  st_read('Subcommunities.geojson')
-mapview(subcomms)
 st_crs(subcomms)
 # CRS: EPSG: 4326, WGS84, metres
 
-centroids <- st_centroid(cityHoods)
 
-abcccc <- st_covered_by(cityHoods, subcomms)
+# Problem with spherical, SOLVE
+sf::sf_use_s2(FALSE)
 
-# TODO: School district boundaries
+# Join the region zoning polygons with the subcommunities polygons and union
+cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
+  select(SUBCOMMUNITY, geometry) %>%
+  group_by(SUBCOMMUNITY) %>%
+  summarize(geometry = st_union(geometry))
+
+
+neighborhoods <- rbind(zones, cityHoods)
+mapview(neighborhoods)
+
+
+# COMPARE WITH NOT-CITY boundaries
 
 
 
