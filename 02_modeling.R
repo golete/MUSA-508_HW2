@@ -111,7 +111,9 @@ summary(cleanHomesReg)
 
 # --- MODEL ESTIMATION & VALIDATION ---
 
-regData <- eraRecode # UPDATE WHEN RUNNING NEW MODEL
+regData <- dataset # UPDATE WHEN RUNNING NEW MODEL
+
+regData <- dplyr::select(regData, -distToWildfire, -floodRisk)
 
 # TODO: Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
@@ -122,7 +124,8 @@ inTrain <- createDataPartition(
     regData$heatingType, 
     regData$extWall, 
     regData$extWall2, 
-    regData$roofType
+    regData$roofType,
+    regData$neighborhood # comment out if absent
   ),
   p = 0.75, list = FALSE)
 
