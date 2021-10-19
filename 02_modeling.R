@@ -96,8 +96,6 @@ ggcorrplot(
   insig = "blank"
 ) +
   labs(title = "Correlation across categorical dummy variables")
-  
-# TODO: Univariate regressions?
 
 # try a linear regression
 
@@ -107,39 +105,13 @@ cleanHomesReg <- lm(logPrice ~ .,
 )
 summary(cleanHomesReg)
 
-# remove colinear or ineffective variables
-cleanerHomes <- 
-  dplyr::select(
-    cleanHomes,
-    # -price,
-    -quarterSold,
-    -qualityNum2,
-    # age
-    -effectiveAge,
-    # baths
-    -nbrFullBaths,
-    -nbrThreeQtrBaths,
-    -nbrHalfBaths,
-    -totalBaths,
-    # basement - remove recodes from wrangling section?
-    -basementDummy,
-    -finishedBasement,
-    -walkOutBasement,
-    # A/C
-    -acDummy
-  )
 
-# try the regression again
-cleanerHomesReg <- lm(logPrice ~ .,
-                    data = st_drop_geometry(cleanerHomes) %>%
-                      dplyr::select(-toPredict, -MUSA_ID, -price)
-)
-summary(cleanerHomesReg)
+
 
 
 # --- MODEL ESTIMATION & VALIDATION ---
 
-regData <- cleanHomes # UPDATE WHEN RUNNING NEW MODEL
+regData <- eraRecode # UPDATE WHEN RUNNING NEW MODEL
 
 # TODO: Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
@@ -175,6 +147,9 @@ homes.test <- homes.test %>%
     price.AbsError = abs(price.Predict - price),
     price.APE = (abs(price.Predict - price)/price.Predict)    
   )
+
+mean(homes.test$price.AbsError)
+mean(homes.test$price.APE)
 
 # TODO: Plot distribution of prediction errors
 
