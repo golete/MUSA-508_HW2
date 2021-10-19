@@ -1,0 +1,43 @@
+
+
+CORRELATION NOTES
+- logPrice is better than price (stronger correlation)
+- age and newConstruction are BAD
+- effectiveAge2 is marginally better than effectiveAge, but neither is great
+- qualityNum > qualityNum2
+- TotalFinishedSF > mainfloorSF
+- nbrRooms > nbrRoomsNobath > nbrBedRoom (colineariy with sq ft?)
+- totalBaths2 > totalBathOrShower >= totalBaths > nbrFullBaths > nbrThreeQtrBaths > nbrHalfBaths
+- carStorageSF >>> garageDummy >= carStorageDummy
+- bsmtSF > finishedBasement > walkOutBasement > basementDummy (colinearity?)
+
+DUMMY CORRELATION NOTES
+- basement correlations weaker categorical than recoded; maybe try both but probably keep recoded (penalty for no basement category, though?)
+- try garage both ways? but maybe just carStorageSF
+- year/quarter sold: try both ways
+- dummy variables with colinearity issues:
+	-basementLOWER LVL GARDEN FINISHED (BI-SPLIT LVL)
+	-carStorageATTACHED GARAGE AREA
+	-acTypeUnspecified
+	-heatingTypeUnspecified
+	-constMatUnspecified
+	-"None" variables (better as simple dummies?)
+
+
+LINEAR REGRESSION NOTES - allVars/logPrice
+***
+year
+CompCode
+nbrRoomsNobath
+mainfloorSF
+manySections
+qualityNum
+age
+basementDummy
+walkOutBasement
+
+**
+nbrBedRoom
+nbrFullBaths
+qualityNum2
+newConstruction
