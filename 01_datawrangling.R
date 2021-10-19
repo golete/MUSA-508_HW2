@@ -44,7 +44,7 @@ st_crs(data$geometry)
 # A1. Subset primary data for prediction
 
 subdata <- data %>%
-  dplyr::select(MUSA_ID, toPredict, price, geometry)
+  dplyr::select(MUSA_ID, geometry)
 
 
 # A2. House data
@@ -109,11 +109,7 @@ knownPrice <- filter(data, toPredict == 0)
 #   "Veneer"
 #   "Precast" 
 
-houseData <- 
-  # exclude extreme outlier listed as sold for $31.5 million; 
-  # listing strongly suggests incorrectly entered: https://www.zillow.com/homedetails/3335-Talisman-Ct-APT-C-Boulder-CO-80301/13222117_zpid/
-  filter(data, price < 10000000) %>%
-  # create features from existing variables
+house <- data %>%
   mutate(
     nbrRooms = nbrRoomsNobath+nbrFullBaths+(nbrThreeQtrBaths+nbrHalfBaths)/2,
     # calculate quarter sold
@@ -213,7 +209,7 @@ houseData <-
   )
 
 
-house <- houseData %>%
+houseData <- house %>%
   # drop unnecessary columns and columns with too much missing data
   dplyr::select(
     # same for all
@@ -255,8 +251,6 @@ house <- houseData %>%
     -Roof_CoverDscr
   )
 
-hist(house$nbrRooms)
-
 
 
 # B. BOUNDARY DATA (Neighborhoods, school districts, city, etc.)
@@ -276,17 +270,13 @@ st_crs(munis)
 
 # B2. Boulder city and other cities/zones boundaries
 
-# To solve problem with spherical, ask for implications ****
-# sf::sf_use_s2(TRUE)
-
 zones <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
+  st_transform(st_crs(data)) %>%
   select(ZONEDESC, geometry) %>%
   filter(ZONEDESC != 'Boulder') %>%
   group_by(ZONEDESC) %>%
   rename(SUBCOMMUNITY = ZONEDESC) %>%
   summarize(geometry = st_union(geometry))
-st_crs(zones)
-# CRS: EPSG: 4326, WGS84, metres
 
 # Subset the generic zones as a separate map just if needed
 genericZones <- c('Business',
@@ -311,14 +301,12 @@ notCity <- zones %>% st_union()
 # B3. Boulder City Zoning Districts
 
 districts <- st_read('Zoning_Districts.geojson') %>%
+  st_transform(st_crs(data)) %>%
   select(OBJECTID, ZONING, ZNDESC, geometry)
-st_crs(districts)
-# CRS: EPSG: 4326, WGS84, metres
 
 # Load the subcommunities / neighborhoods rough boundaries
-subcomms <-  st_read('Subcommunities.geojson')
-st_crs(subcomms)
-# CRS: EPSG: 4326, WGS84, metres
+subcomms <-  st_read('Subcommunities.geojson') %>%
+  st_transform(st_crs(data))
 
 # Join the region zoning polygons with the subcommunities polygons and union
 cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
@@ -328,10 +316,11 @@ cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
 
 # FINAL NEIGHBORHOOD DATA TO USE
 neighborhoods <- rbind(zones, cityHoods) %>%
-  st_transform(st_crs(data))
-neighborhoodData <- st_join(subdata, neighborhoods) # join to the SUBDATA dataframe ************************
+  rename(neighborhood = SUBCOMMUNITY)
 
-
+neighborhoodData <- st_join(subdata, neighborhoods) %>%
+  distinct(.,MUSA_ID, .keep_all = TRUE) %>%
+  st_drop_geometry() # join to the SUBDATA dataframe ************************
 
 
 # C. CENSUS DATA
@@ -372,7 +361,6 @@ varsC <- c('B25003_001E', # Total housing units
            'B15003_025E'  # Doctorate degree
            )
 
-
 # import variables from ACS 2019 5-year
 tracts <- 
   get_acs(geography = "tract",
@@ -394,54 +382,63 @@ tracts <-
          EduDocts = B15003_025E # Doctorate degree
          ) %>%
   mutate(PCTHHowner = HHownerOc/HHtotal) %>%
+  mutate(PCTVacant = HHvacant/HHtotal) %>%
   mutate(PCTHHwhite = HHwhite/HHtotal) %>%
   mutate(PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal) %>%
   mutate(PCTbel125pov = (B17026_002E+B17026_003E+B17026_004E+B17026_005E)/B17026_001E) %>%
   mutate(PCT125185pov = (B17026_006E+B17026_007E+B17026_008E)/B17026_001E) %>%
   mutate(PCT185300pov = (B17026_009E+B17026_010E)/B17026_001E) %>%
-  select(-HHownerOc,-HHwhite,-starts_with('Edu'), -starts_with('B17026')) %>%
+  select(-HHtotal, -HHvacant, -HHownerOc,-HHwhite,-starts_with('Edu'), -starts_with('B17026')) %>%
   st_transform(st_crs(data)) 
 
 boulderTracts <- tracts %>%
   select(GEOID, geometry)
 
-censusData <- st_join(subdata, boulderTracts) # join to the SUBDATA dataframe ************************
+censusData <- st_join(subdata, boulderTracts) %>%
+  st_drop_geometry() %>%
+  left_join(., tracts, by='GEOID') %>%
+  select(-GEOID, -NAME, -geometry) # join to the SUBDATA dataframe ************************
 
 
 # D. OTHER DATA (CRIME, FEMA, etc.)
 
 # D1. Wildfire history data
 
-distwf <- 1
-
 wildfires <-
   st_read('Wildfire_History.geojson') %>%
   filter(ENDDATE > "2006-10-19 00:00:00") %>% # FILTER to only fires that happened after 2000
   select(NAME, geometry) %>%
   st_transform(st_crs(data)) %>%
-  st_buffer(805*distwf) %>%
+  st_buffer(805) %>%
   st_union() %>%
   st_sf() %>%
   mutate(distance = 0, .before = 1)
 
 wildfireRings <- rbind(wildfires, multipleRingBuffer(wildfires, 3220, 805))
 
-wildfireData <- st_join(subdata, wildfireRings) %>%
-  mutate(distance = distance / 1610)
+wildfireData <- st_join(subdata, wildfireRings) %>% # join to the SUBDATA dataframe ************************
+  mutate(distance = distance / 1610) %>%
+  rename(distToWildfire = distance) %>%
+  st_drop_geometry()
 
 
 # D2. CHAMP floodplain maps
 
+fldrisk = c(AE = 4, AH = 3, AO = 2, X = 1)
+
 floodplains <- 
   st_read('Floodplain_-_BC_Regulated.geojson') %>%
-  select(FLD_AR_ID, # Primary key for table lookup.
-         SFHA_TF, #Special Flood Hazard Area. If the area is within the SFHA, this field would be true any area that is coded for any A or V zone flood areas. It should be false for all other flood zone areas. Acceptable values for this field are listed in the D_TrueFalse table.
+  st_transform(st_crs(data)) %>%
+  select(SFHA_TF, #Special Flood Hazard Area. If the area is within the SFHA, this field would be true any area that is coded for any A or V zone flood areas. It should be false for all other flood zone areas. Acceptable values for this field are listed in the D_TrueFalse table.
          FLD_ZONE, #Flood Zone. This is a flood zone designation. These zones are used by FEMA to designate the SFHAs and for Acceptable values for this field are listed in the D_Zone table. 
-         ZONE_SUBTY, #Flood Zone Type. Flood Zone areas that will remain free of development to moderate increases in flood heights due to encroachment on the floodplain. Acceptable values for this field are listed in the D_ ZONE_SUBTY table. 
          geometry) %>%
-  st_transform(st_crs(data))
+  mutate(FLD_ZONE = recode(FLD_ZONE, !!!fldrisk, .default = 0)) %>%
+  group_by(FLD_ZONE) %>%
+  summarize(geometry = st_union(geometry)) %>%
+  rename(floodRisk = FLD_ZONE)
 
-m(floodplains)
+floodData <- st_join(subdata, floodplains) %>%
+  st_drop_geometry()
 
 # METADATA from https://www.hsdl.org/?view&did=7705
 
@@ -463,38 +460,48 @@ m(floodplains)
 
 
 
-
-
 # E. EXPERIMENTAL DATA
 
 # E1. Whole Foods locations
 
-wholefoodsData <- st_read("wholefoodsmarkets_boulderCO.csv")
+wholefoodsLocations <- st_read("wholefoodsmarkets_boulderCO.csv")
 
-wholefoods <- st_as_sf(wholefoodsData, coords = c("lon", "lat"), crs = 4326) %>%
-  st_transform(crs = 3857) %>%
+wholefoods <- st_as_sf(wholefoodsLocations, coords = c("lon", "lat"), crs = 4326) %>% #4326
   dplyr::select(-phone, -address) %>%
-  st_buffer(5000) %>%
-  st_union()
+  st_buffer(4023) %>%
+  st_union() %>%
+  st_sf() %>%
+  st_transform(st_crs(data))
 
-m(wholefoods)
+wholefoodsBuffer <- st_join(subdata, wholefoods, left = FALSE) 
 
-
+wholefoodsData <- subdata %>%
+  mutate(wholeFoods = ifelse(MUSA_ID %in% wholefoodsBuffer$MUSA_ID, 1, 0))  %>%
+  st_drop_geometry()
 
 
 # E2. Marijuana dispensaries
+
 marijuana <- st_read("Marijuana_Establishments.geojson") %>%
-  st_transform(crs = 3857) %>%
   dplyr::select(OBJECTID, Type, geometry) %>%
   st_buffer(2414) %>%
-  st_union()
+  st_union() %>%
+  st_sf() %>%
+  st_transform(st_crs(data))
 
-m(marijuana)
+marijuanaBuffer <- st_join(subdata, marijuana, left = FALSE) 
 
-st_crs(marijuana) # CRS: EPSG:4326, WGS 84
-
+marijuanaData <- subdata %>%
+  mutate(marijuana = ifelse(MUSA_ID %in% marijuanaBuffer$MUSA_ID, 1, 0)) %>%
+  st_drop_geometry()
 
 
 # --- EXPORT ---
 
-# TODO: Add code to export final analysis data set for modeling script
+dataset <-
+  left_join(houseData, neighborhoodData, by = 'MUSA_ID') %>%
+  left_join(., censusData, by = 'MUSA_ID') %>%
+  left_join(., wildfireData, by = 'MUSA_ID') %>%
+  left_join(., floodData, by = 'MUSA_ID') %>%
+  left_join(., wholefoodsData, by = 'MUSA_ID') %>%
+  left_join(., marijuanaData, by = 'MUSA_ID')
