@@ -22,6 +22,8 @@ library(jtools)     # for regression model plots
 library(ggstance) # to support jtools plots
 library(mapview)
 
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
 # Working setup
 options(scipen = 999)
 g <- glimpse
@@ -34,11 +36,18 @@ m <- mapview
 
 # read in home value data
 
-data <- st_read("studentData.geojson")
-
+data <- st_read("studentData.geojson") %>%
+  st_set_crs('ESRI:102254')
 st_crs(data$geometry)
-# ESPG 4326 in meters
+# ESRI:102254 /// EPSG 4152 in meters
 
+# A1. Subset primary data for prediction
+
+subdata <- data %>%
+  dplyr::select(MUSA_ID, toPredict, price, geometry)
+
+
+# A2. House data
 
 varsA <- c('price',
            'year_quarter',      # Time of sale
@@ -246,7 +255,6 @@ house <- houseData %>%
     -Roof_CoverDscr
   )
 
-
 hist(house$nbrRooms)
 
 
@@ -269,7 +277,7 @@ st_crs(munis)
 # B2. Boulder city and other cities/zones boundaries
 
 # To solve problem with spherical, ask for implications ****
-sf::sf_use_s2(FALSE)
+# sf::sf_use_s2(TRUE)
 
 zones <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
   select(ZONEDESC, geometry) %>%
@@ -280,9 +288,25 @@ zones <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
 st_crs(zones)
 # CRS: EPSG: 4326, WGS84, metres
 
+# Subset the generic zones as a separate map just if needed
+genericZones <- c('Business',
+                  'Commercial',
+                  'Economic Development',
+                  'Estate Residential',
+                  'General Industrial',
+                  'Light Industrial',
+                  'Manufactured Home',
+                  'Mountain Institutional',
+                  'Multiple Family',
+                  'Rural Residential',
+                  'Suburban Residential',
+                  'Transitional')
+notNamedZones <- zones %>%
+  filter(SUBCOMMUNITY %in% genericZones)
+
 # Union the polygons that are not in boulder City limits, just in case
-notCity <- zones %>% st_union
-mapview(notCity)
+notCity <- zones %>% st_union()
+
 
 # B3. Boulder City Zoning Districts
 
@@ -302,29 +326,11 @@ cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
   group_by(SUBCOMMUNITY) %>%
   summarize(geometry = st_union(geometry))
 
-mapview(zones)
-mapview(cityHoods)
+# FINAL NEIGHBORHOOD DATA TO USE
+neighborhoods <- rbind(zones, cityHoods) %>%
+  st_transform(st_crs(data))
+neighborhoodData <- st_join(subdata, neighborhoods) # join to the SUBDATA dataframe ************************
 
-neighborhoods <- rbind(zones, cityHoods)
-m(neighborhoods)
-
-# Subset the generic zones as a separate map just if needed
-genericZones <- c('Business',
-                  'Commercial',
-                  'Economic Development',
-                  'Estate Residential',
-                  'General Industrial',
-                  'Light Industrial',
-                  'Manufactured Home',
-                  'Mountain Institutional',
-                  'Multiple Family',
-                  'Rural Residential',
-                  'Suburban Residential',
-                  'Transitional')
-uZones <- zones %>%
-  filter(SUBCOMMUNITY %in% genericZones)
-m(uZones)
-# COMPARE WITH NOT-CITY boundaries
 
 
 
@@ -367,7 +373,7 @@ varsC <- c('B25003_001E', # Total housing units
            )
 
 
-# import variables
+# import variables from ACS 2019 5-year
 tracts <- 
   get_acs(geography = "tract",
           variables = varsC,
@@ -393,25 +399,35 @@ tracts <-
   mutate(PCTbel125pov = (B17026_002E+B17026_003E+B17026_004E+B17026_005E)/B17026_001E) %>%
   mutate(PCT125185pov = (B17026_006E+B17026_007E+B17026_008E)/B17026_001E) %>%
   mutate(PCT185300pov = (B17026_009E+B17026_010E)/B17026_001E) %>%
-  select(-HHownerOc,-HHwhite,-starts_with('Edu'), -starts_with('B17026'))
+  select(-HHownerOc,-HHwhite,-starts_with('Edu'), -starts_with('B17026')) %>%
+  st_transform(st_crs(data)) 
 
-st_crs(tracts$geometry) # CRS: ESPG 4269, NAD84 metres
+boulderTracts <- tracts %>%
+  select(GEOID, geometry)
 
+censusData <- st_join(subdata, boulderTracts) # join to the SUBDATA dataframe ************************
 
 
 # D. OTHER DATA (CRIME, FEMA, etc.)
 
 # D1. Wildfire history data
 
+distwf <- 1
+
 wildfires <-
   st_read('Wildfire_History.geojson') %>%
-  select(-Shapearea, -Shapelen, -LABELNAME, -STARTDATE)
+  filter(ENDDATE > "2006-10-19 00:00:00") %>% # FILTER to only fires that happened after 2000
+  select(NAME, geometry) %>%
+  st_transform(st_crs(data)) %>%
+  st_buffer(805*distwf) %>%
+  st_union() %>%
+  st_sf() %>%
+  mutate(distance = 0, .before = 1)
 
-# ENDDATE -- FILTER to only fires that happened after 2000? 2010?
+wildfireRings <- rbind(wildfires, multipleRingBuffer(wildfires, 3220, 805))
 
-st_crs(wildfires$geometry) # CRS: EPSG 4326, metres
-
-# mapview(wildfires)
+wildfireData <- st_join(subdata, wildfireRings) %>%
+  mutate(distance = distance / 1610)
 
 
 # D2. CHAMP floodplain maps
@@ -422,8 +438,10 @@ floodplains <-
          SFHA_TF, #Special Flood Hazard Area. If the area is within the SFHA, this field would be true any area that is coded for any A or V zone flood areas. It should be false for all other flood zone areas. Acceptable values for this field are listed in the D_TrueFalse table.
          FLD_ZONE, #Flood Zone. This is a flood zone designation. These zones are used by FEMA to designate the SFHAs and for Acceptable values for this field are listed in the D_Zone table. 
          ZONE_SUBTY, #Flood Zone Type. Flood Zone areas that will remain free of development to moderate increases in flood heights due to encroachment on the floodplain. Acceptable values for this field are listed in the D_ ZONE_SUBTY table. 
-         geometry)
-st_crs(floodplains) # CRS: EPSG 4326, WGS 84, metres
+         geometry) %>%
+  st_transform(st_crs(data))
+
+m(floodplains)
 
 # METADATA from https://www.hsdl.org/?view&did=7705
 
@@ -443,7 +461,7 @@ st_crs(floodplains) # CRS: EPSG 4326, WGS 84, metres
 #  1100 FLOODWAY 
 #  2000 AREA OF MINIMAL FLOOD HAZARD 
 
-mapview(floodplains$geometry)
+
 
 
 
@@ -460,6 +478,9 @@ wholefoods <- st_as_sf(wholefoodsData, coords = c("lon", "lat"), crs = 4326) %>%
   st_union()
 
 m(wholefoods)
+
+
+
 
 # E2. Marijuana dispensaries
 marijuana <- st_read("Marijuana_Establishments.geojson") %>%
