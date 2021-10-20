@@ -39,7 +39,7 @@ st_drop_geometry(cleanHomes) %>% # TODO: Replace with analysis dataset
     labs(title = "Price as a function of continuous variables")
 
 # select numeric variables for correlation matrix
-numericVars <- select_if(st_drop_geometry(cleanHomes), is.numeric) %>%
+numericVars <- select_if(st_drop_geometry(eraRecode), is.numeric) %>%
   dplyr::select(
     # omit for more legible chart
     -toPredict,
@@ -54,6 +54,8 @@ corDF <- as.data.frame(as.table(corMatrix)) %>%
 # review numeric variables most correlated with price
 corPrice <- filter(corDF, Var1 == "price")
 corLogPrice <- filter(corDF, Var1 == "logPrice") # stronger correlations
+
+corFinishedSF <- filter(corDF, Var1 == "TotalFinishedSF")
 
 # generate correlation matrix chart for numeric variables
 ggcorrplot(
