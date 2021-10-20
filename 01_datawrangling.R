@@ -515,3 +515,6 @@ dataset <-
   left_join(., floodData, by = 'MUSA_ID') %>%
   left_join(., wholefoodsData, by = 'MUSA_ID') %>%
   left_join(., marijuanaData, by = 'MUSA_ID')
+
+# Exclude homes over $10 million
+dataset <- filter(dataset, price < 10000000)

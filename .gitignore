@@ -37,3 +37,9 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+# EE temporary files
+notes.txt
+01_datawrangling-EE-SPLIT.R
+01_datawrangling-EE-SPLIT2.R
+trashcode.R

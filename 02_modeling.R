@@ -39,7 +39,7 @@ st_drop_geometry(cleanHomes) %>% # TODO: Replace with analysis dataset
     labs(title = "Price as a function of continuous variables")
 
 # select numeric variables for correlation matrix
-numericVars <- select_if(st_drop_geometry(cleanHomes), is.numeric) %>%
+numericVars <- select_if(st_drop_geometry(eraRecode), is.numeric) %>%
   dplyr::select(
     # omit for more legible chart
     -toPredict,
@@ -54,6 +54,8 @@ corDF <- as.data.frame(as.table(corMatrix)) %>%
 # review numeric variables most correlated with price
 corPrice <- filter(corDF, Var1 == "price")
 corLogPrice <- filter(corDF, Var1 == "logPrice") # stronger correlations
+
+corFinishedSF <- filter(corDF, Var1 == "TotalFinishedSF")
 
 # generate correlation matrix chart for numeric variables
 ggcorrplot(
@@ -96,8 +98,6 @@ ggcorrplot(
   insig = "blank"
 ) +
   labs(title = "Correlation across categorical dummy variables")
-  
-# TODO: Univariate regressions?
 
 # try a linear regression
 
@@ -107,39 +107,15 @@ cleanHomesReg <- lm(logPrice ~ .,
 )
 summary(cleanHomesReg)
 
-# remove colinear or ineffective variables
-cleanerHomes <- 
-  dplyr::select(
-    cleanHomes,
-    # -price,
-    -quarterSold,
-    -qualityNum2,
-    # age
-    -effectiveAge,
-    # baths
-    -nbrFullBaths,
-    -nbrThreeQtrBaths,
-    -nbrHalfBaths,
-    -totalBaths,
-    # basement - remove recodes from wrangling section?
-    -basementDummy,
-    -finishedBasement,
-    -walkOutBasement,
-    # A/C
-    -acDummy
-  )
 
-# try the regression again
-cleanerHomesReg <- lm(logPrice ~ .,
-                    data = st_drop_geometry(cleanerHomes) %>%
-                      dplyr::select(-toPredict, -MUSA_ID, -price)
-)
-summary(cleanerHomesReg)
+
 
 
 # --- MODEL ESTIMATION & VALIDATION ---
 
-regData <- cleanHomes # UPDATE WHEN RUNNING NEW MODEL
+regData <- dataset # UPDATE WHEN RUNNING NEW MODEL
+
+regData <- dplyr::select(regData, -distToWildfire, -floodRisk)
 
 # TODO: Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
@@ -150,7 +126,8 @@ inTrain <- createDataPartition(
     regData$heatingType, 
     regData$extWall, 
     regData$extWall2, 
-    regData$roofType
+    regData$roofType,
+    regData$neighborhood # comment out if absent
   ),
   p = 0.75, list = FALSE)
 
@@ -175,6 +152,9 @@ homes.test <- homes.test %>%
     price.AbsError = abs(price.Predict - price),
     price.APE = (abs(price.Predict - price)/price.Predict)    
   )
+
+mean(homes.test$price.AbsError)
+mean(homes.test$price.APE)
 
 # TODO: Plot distribution of prediction errors
 
