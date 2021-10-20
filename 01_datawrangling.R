@@ -302,14 +302,12 @@ notCity <- zones %>% st_union()
 
 districts <- st_read('Zoning_Districts.geojson') %>%
   st_transform(st_crs(data)) %>%
-  select(ZNDESC, geometry) %>%
-  group_by(ZNDESC) %>%
-  summarize(geometry = st_union(geometry)) %>%
-  rename(SUBCOMMUNITY = ZNDESC)
+  select(OBJECTID, ZONING, ZNDESC, geometry)
 
 # Load the subcommunities / neighborhoods rough boundaries
 subcomms <-  st_read('Subcommunities.geojson') %>%
   st_transform(st_crs(data))
+
 
 # Join the region zoning polygons with the subcommunities polygons and union
 cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
@@ -317,20 +315,17 @@ cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
   group_by(SUBCOMMUNITY) %>%
   summarize(geometry = st_union(geometry))
 
+
 # FINAL NEIGHBORHOOD DATA TO USE
 neighborhoods <- rbind(zones, cityHoods) %>%
   rename(neighborhood = SUBCOMMUNITY)
+
+m(neighborhoods)
 
 neighborhoodData <- st_join(subdata, neighborhoods) %>%
   distinct(.,MUSA_ID, .keep_all = TRUE) %>%
   st_drop_geometry() 
 
-
-# B4. Zillow Neighborhoods:
-# Map with County districts and Boulder city zoning.
-
-zoningAreas <- rbind(zones, districts) %>%
-  rename(neighborhood = SUBCOMMUNITY)
 
 
 # C. CENSUS DATA
