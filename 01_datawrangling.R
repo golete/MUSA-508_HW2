@@ -163,6 +163,7 @@ house <- data %>%
     effectiveAge = year - EffectiveYear,
     effectiveAge2 = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
     newConstruction = if_else(year <= builtYear, 1, 0),
+    
     # recode missing basement values
     basement = if_else(bsmtType == 0, "None", as.character(bsmtTypeDscr)),
     # try simpler basement categories
@@ -422,7 +423,7 @@ wildfires <-
   st_sf() %>%
   mutate(distance = 0, .before = 1)
 
-wildfireRings <- rbind(wildfires, multipleRingBuffer(wildfires, 3220, 805))
+wildfireRings <- rbind(wildfires, multipleRingBuffer(wildfires, 20921, 805))
 
 wildfireData <- st_join(subdata, wildfireRings) %>% 
   mutate(distance = distance / 1610) %>%
@@ -518,3 +519,4 @@ dataset <-
 
 # Exclude homes over $10 million
 dataset <- filter(dataset, price < 10000000)
+
