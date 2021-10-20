@@ -163,6 +163,7 @@ house <- data %>%
     effectiveAge = year - EffectiveYear,
     effectiveAge2 = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
     newConstruction = if_else(year <= builtYear, 1, 0),
+    
     # recode missing basement values
     basement = if_else(bsmtType == 0, "None", as.character(bsmtTypeDscr)),
     # try simpler basement categories
@@ -414,20 +415,17 @@ censusData <- st_join(subdata, boulderTracts) %>%
 
 wildfires <-
   st_read('Wildfire_History.geojson') %>%
-  filter(ENDDATE > "2006-10-19 00:00:00") %>% # FILTER to only fires that happened after 2000
+  filter(ENDDATE > "2001-10-19 00:00:00") %>% # FILTER to only fires that happened after 2000
   select(NAME, geometry) %>%
   st_transform(st_crs(data)) %>%
-  st_buffer(805) %>%
+  st_buffer(1610) %>%
   st_union() %>%
   st_sf() %>%
-  mutate(distance = 0, .before = 1)
+  mutate(wildfireHazard = 1)
 
-wildfireRings <- rbind(wildfires, multipleRingBuffer(wildfires, 3220, 805))
-
-wildfireData <- st_join(subdata, wildfireRings) %>% 
-  mutate(distance = distance / 1610) %>%
-  rename(distToWildfire = distance) %>%
-  st_drop_geometry()
+wildfireData <- st_join(subdata, wildfires) %>%
+  st_drop_geometry() %>%
+  mutate(wildfireHazard = replace_na(wildfireHazard, 0))
 
 
 # D2. CHAMP floodplain maps
@@ -518,3 +516,4 @@ dataset <-
 
 # Exclude homes over $10 million
 dataset <- filter(dataset, price < 10000000)
+
