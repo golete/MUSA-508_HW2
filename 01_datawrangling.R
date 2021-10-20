@@ -260,7 +260,6 @@ houseData <- house %>%
 countylimits <- st_read('County_Boundary.geojson') %>%
   select(OBJECTID, geometry)
 st_crs(countylimits)
-# CRS: EPSG: 4326, WGS84, metres
 
 munis <- st_read('Municipalities.geojson') %>%
   select(ZONEDESC, geometry)
@@ -302,7 +301,10 @@ notCity <- zones %>% st_union()
 
 districts <- st_read('Zoning_Districts.geojson') %>%
   st_transform(st_crs(data)) %>%
-  select(OBJECTID, ZONING, ZNDESC, geometry)
+  select(ZNDESC, geometry) %>%
+  group_by(ZNDESC) %>%
+  summarize(geometry = st_union(geometry)) %>%
+  rename(SUBCOMMUNITY = ZNDESC)
 
 # Load the subcommunities / neighborhoods rough boundaries
 subcomms <-  st_read('Subcommunities.geojson') %>%
@@ -320,7 +322,14 @@ neighborhoods <- rbind(zones, cityHoods) %>%
 
 neighborhoodData <- st_join(subdata, neighborhoods) %>%
   distinct(.,MUSA_ID, .keep_all = TRUE) %>%
-  st_drop_geometry() # join to the SUBDATA dataframe ************************
+  st_drop_geometry() 
+
+
+# B4. Zillow Neighborhoods:
+# Map with County districts and Boulder city zoning.
+
+zoningAreas <- rbind(zones, districts) %>%
+  rename(neighborhood = SUBCOMMUNITY)
 
 
 # C. CENSUS DATA
@@ -397,8 +406,7 @@ boulderTracts <- tracts %>%
 censusData <- st_join(subdata, boulderTracts) %>%
   st_drop_geometry() %>%
   left_join(., tracts, by='GEOID') %>%
-  select(-GEOID, -NAME, -geometry) # join to the SUBDATA dataframe ************************
-
+  select(-GEOID, -NAME, -geometry) 
 
 # D. OTHER DATA (CRIME, FEMA, etc.)
 
@@ -416,7 +424,7 @@ wildfires <-
 
 wildfireRings <- rbind(wildfires, multipleRingBuffer(wildfires, 3220, 805))
 
-wildfireData <- st_join(subdata, wildfireRings) %>% # join to the SUBDATA dataframe ************************
+wildfireData <- st_join(subdata, wildfireRings) %>% 
   mutate(distance = distance / 1610) %>%
   rename(distToWildfire = distance) %>%
   st_drop_geometry()
@@ -434,11 +442,13 @@ floodplains <-
          geometry) %>%
   mutate(FLD_ZONE = recode(FLD_ZONE, !!!fldrisk, .default = 0)) %>%
   group_by(FLD_ZONE) %>%
-  summarize(geometry = st_union(geometry)) %>%
+  summarize(geometry = st_union(geometry))%>%
   rename(floodRisk = FLD_ZONE)
-
+  
 floodData <- st_join(subdata, floodplains) %>%
-  st_drop_geometry()
+  st_drop_geometry() %>%
+  mutate(floodRisk = replace_na(floodRisk, 0))
+
 
 # METADATA from https://www.hsdl.org/?view&did=7705
 
@@ -484,7 +494,7 @@ wholefoodsData <- subdata %>%
 
 marijuana <- st_read("Marijuana_Establishments.geojson") %>%
   dplyr::select(OBJECTID, Type, geometry) %>%
-  st_buffer(2414) %>%
+  st_buffer(1609) %>%
   st_union() %>%
   st_sf() %>%
   st_transform(st_crs(data))
