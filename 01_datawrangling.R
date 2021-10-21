@@ -324,7 +324,7 @@ neighborhoodData <- st_join(subdata, neighborhoods) %>%
   distinct(.,MUSA_ID, .keep_all = TRUE) %>%
   st_drop_geometry() 
 
-mneighborhoods)
+m(neighborhoods)
 
 # C. CENSUS DATA
 
