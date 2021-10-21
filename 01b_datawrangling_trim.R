@@ -37,7 +37,7 @@ m <- mapview
 # read in home value data
 
 data <- st_read("studentData.geojson") %>%
-  st_set_crs('ESRI:102253')
+  st_set_crs('ESRI:102254')
 st_crs(data$geometry)
 # ESRI:102254 /// EPSG 4152 in meters
 
@@ -72,19 +72,6 @@ varsA <- c('price',
 # examine distribution of known prices
 knownPrice <- filter(data, toPredict == 0)
 
-# min(knownPrice$price) # $10,000
-# max(knownPrice$price) # $31,500,000
-# mean(knownPrice$price) # $749,112.9
-# mean(cleanerData$price) # $746,382.6
-# median(knownPrice$price) # 605,750
-# hist(cleanerData$price, breaks = 100)
-# hist(log(knownPrice$price), breaks = 100)
-# hist(log(cleanerData$price), breaks = 100)
-
-# hist(cleanerData$price)
-# hist(log(knownPrice$price))
-# hist(log(cleanerData$price))
-
 # designCodeDscr
 #   "1 Story - Ranch"
 #   "Bi-level"
@@ -111,14 +98,12 @@ knownPrice <- filter(data, toPredict == 0)
 
 house <- data %>%
   mutate(
+    # calculate log of price to normalize positive skew
+    logPrice = log(price),
+    # total of rooms
     nbrRooms = nbrRoomsNobath+nbrFullBaths+(nbrThreeQtrBaths+nbrHalfBaths)/2,
     # calculate quarter sold
     quarterSold = str_sub(year_quarter, -1, -1),
-    # calculate log of price to normalize positive skew
-    logPrice = log(price),
-    # convert building and section numbers to dummies
-    manyBuildings = if_else(bld_num > 1, 1, 0),
-    manySections = if_else(section_num > 1, 1, 0),
     # recode quality as numeric variable
     # NOTE: not at all normal; maybe note in writeup if using
     qualityNum = case_when(
@@ -139,119 +124,52 @@ house <- data %>%
       qualityCode == 70 ~ 15, # "EXCEPTIONAL 1 "
       qualityCode == 80 ~ 16, # "EXCEPTIONAL 2 "
     ),
-    # try collapsing quality categories
-    # NOTE: still not at all normal, but see if more predictive
-    qualityNum2 = case_when(
-      qualityCode == 10 ~ 1, # "LOW"
-      qualityCode == 20 ~ 2, # "FAIR"
-      between(qualityCode, 30, 32) ~ 3, # "AVERAGE", "AVERAGE +", "AVERAGE ++"
-      between(qualityCode, 40, 42) ~ 4, # "GOOD", "GOOD +", "GOOD ++"
-      between(qualityCode, 50, 52) ~ 5, # "VERY GOOD", "VERY GOOD +", "VERY GOOD ++"
-      between(qualityCode, 60, 62) ~ 6, # "EXCELLENT", "EXCELLENT +", "EXCELLENT ++"
-      between(qualityCode, 70, 80) ~ 7 # "EXCEPTIONAL 1", "EXCEPTIONAL 2"
-    ),
     # recode missing construction material values
     constMat = case_when(
       ConstCode == 0 ~ "Missing",
       ConstCode == 300 ~ "Unspecified",
       ConstCode > 300 ~ as.character(ConstCodeDscr)
     ),
-    # calculate age and effective age (time since last major renovation)
-    # TODO: Decide whether to recode negative age (homes sold before construction) as 0
-    # TODO: Try effectiveAge with negatives recoded as 0, plus new construction dummy?
-    age = year - builtYear,
-    effectiveAge = year - EffectiveYear,
-    effectiveAge2 = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
-    newConstruction = if_else(year <= builtYear, 1, 0),
-    
-    # recode missing basement values
-    basement = if_else(bsmtType == 0, "None", as.character(bsmtTypeDscr)),
-    # try simpler basement categories
-    basementDummy = if_else(bsmtType == 0, 0, 1),
-    finishedBasement = if_else(str_detect(bsmtTypeDscr, " FINISHED"), 1, 0),
-    walkOutBasement = if_else(str_detect(bsmtTypeDscr, "WALK"), 1, 0),
-    # recode missing car storage values
-    carStorage = if_else(carStorageType == 0, "None", as.character(carStorageTypeDscr)),
-    # try simpler car storage categories
-    carStorageSimpler = case_when(
-      carStorageType == 0 ~ "None",
-      str_detect(carStorageTypeDscr, "GARAGE") ~ "Garage",
-      str_detect(carStorageTypeDscr, "CARPORT") ~ "Carport",
-    ),
-    # try as dummies
-    carStorageDummy = if_else(carStorageType == 0, 0, 1),
-    garageDummy = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0),
-    # calculate total bathrooms
-    totalBaths = nbrFullBaths + (0.75 * nbrThreeQtrBaths) + (0.5 * nbrHalfBaths),
-    totalBaths2 = nbrFullBaths + nbrThreeQtrBaths + (0.5 * nbrHalfBaths),
-    totalBathOrShower = nbrFullBaths + nbrThreeQtrBaths,
-    # recode missing a/c values
-    acType = case_when(
-      is.na(Ac) ~ "None",
-      Ac == 200 ~ "Unspecified", # Code with no description
-      Ac >= 210 ~ as.character(AcDscr) # "Attic Fan", "Evaporative Cooler", "Whole House" unchanged
-    ),
-    # create binary a/c feature to exclude fans, coolers, and unspecified
-    acDummy = replace_na(if_else(Ac == 210, 1, 0), 0),
-    # recode missing heating values
-    heatingType = case_when(
-      is.na(Heating) ~ "None",
-      Heating == 800 ~ "Unspecified",
-      Heating > 800 ~ as.character(HeatingDscr)
-    ),
-    # recode missing primary exterior wall values
-    extWall = if_else(ExtWallPrim == 0, "Missing", as.character(ExtWallDscrPrim)),
-    # recode missing secondary exterior wall values
-    extWall2 = if_else(is.na(ExtWallSec), "None", as.character(ExtWallDscrSec)),
-    # recode missing interior wall values
-    intWall = if_else(is.na(IntWall), "Missing", as.character(IntWallDscr)),
-    # recode missing roof cover values
-    roofType = if_else(is.na(Roof_Cover), "Missing", as.character(Roof_CoverDscr))
-  )
 
+    effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
+    builtEra = case_when(
+      builtYear < 1910 ~ "Pre-1910",
+      between(builtYear, 1910, 1919) ~ "1910s",
+      between(builtYear, 1920, 1929) ~ "1920s",
+      between(builtYear, 1930, 1939) ~ "1930s",
+      between(builtYear, 1940, 1949) ~ "1940s",
+      between(builtYear, 1950, 1959) ~ "1950s",
+      between(builtYear, 1960, 1969) ~ "1960s",
+      between(builtYear, 1970, 1979) ~ "1970s",
+      between(builtYear, 1980, 1989) ~ "1980s",
+      between(builtYear, 1990, 1999) ~ "1990s",
+      between(builtYear, 2000, 2009) ~ "2000s",
+      between(builtYear, 2010, 2019) ~ "2010s",
+      builtYear >= 2020 ~ "2020s"),
+    
+    # calculate total bathrooms
+    totalBaths = nbrFullBaths + nbrThreeQtrBaths + (0.5 * nbrHalfBaths),
+    # recode missing primary exterior wall values
+    extWall = if_else(ExtWallPrim == 0, "Missing", as.character(ExtWallDscrPrim))
+  )
 
 houseData <- house %>%
   # drop unnecessary columns and columns with too much missing data
-  dplyr::select(
-    # same for all
-    -bldgClass,
-    -bldgClassDscr,
-    -status_cd,
-    # not needed
-    -saleDate,
-    -address,
-    -designCode, # see designCodeDscr
-    # too much missing data
-    -Stories,
-    -UnitCount,
-    # recoded
-    # -year_quarter, # compare with year and quarter as separate features?
-    -bld_num,
-    -section_num,
-    -qualityCode,
-    -qualityCodeDscr,
-    -ConstCode,
-    -ConstCodeDscr,
-    -builtYear,
-    -EffectiveYear,
-    -bsmtType,
-    -bsmtTypeDscr,
-    -carStorageType,
-    -carStorageTypeDscr,
-    -Ac,
-    -AcDscr,
-    -Heating,
-    -HeatingDscr,
-    -ExtWallPrim,
-    -ExtWallDscrPrim,
-    -ExtWallSec,
-    -ExtWallDscrSec,
-    -IntWall,
-    -IntWallDscr,
-    -Roof_Cover,
-    -Roof_CoverDscr
-  )
-
+  dplyr::select(MUSA_ID,
+                toPredict,
+                price,
+                logPrice,
+                quarterSold,
+                TotalFinishedSF,
+                nbrRooms,
+                totalBaths,
+                qualityNum,
+                constMat,
+                extWall,
+                effectiveAge,
+                builtEra,
+                geometry
+                )
 
 
 # B. BOUNDARY DATA (Neighborhoods, school districts, city, etc.)
@@ -302,19 +220,20 @@ notCity <- zones %>% st_union()
 
 districts <- st_read('Zoning_Districts.geojson') %>%
   st_transform(st_crs(data)) %>%
-  select(OBJECTID, ZONING, ZNDESC, geometry)
+  select(ZNDESC, geometry) %>%
+  group_by(ZNDESC) %>%
+  summarize(geometry = st_union(geometry)) %>%
+  rename(SUBCOMMUNITY = ZNDESC)
 
 # Load the subcommunities / neighborhoods rough boundaries
 subcomms <-  st_read('Subcommunities.geojson') %>%
   st_transform(st_crs(data))
-
 
 # Join the region zoning polygons with the subcommunities polygons and union
 cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
   select(SUBCOMMUNITY, geometry) %>%
   group_by(SUBCOMMUNITY) %>%
   summarize(geometry = st_union(geometry))
-
 
 # FINAL NEIGHBORHOOD DATA TO USE
 neighborhoods <- rbind(zones, cityHoods) %>%
@@ -324,7 +243,13 @@ neighborhoodData <- st_join(subdata, neighborhoods) %>%
   distinct(.,MUSA_ID, .keep_all = TRUE) %>%
   st_drop_geometry() 
 
-mneighborhoods)
+
+# B4. Zillow Neighborhoods:
+# Map with County districts and Boulder city zoning.
+
+zoningAreas <- rbind(zones, districts) %>%
+  rename(neighborhood = SUBCOMMUNITY)
+
 
 # C. CENSUS DATA
 
@@ -386,11 +311,11 @@ tracts <-
          ) %>%
   mutate(PCTHHowner = HHownerOc/HHtotal) %>%
   mutate(PCTVacant = HHvacant/HHtotal) %>%
-  mutate(PCTHHwhite = HHwhite/HHtotal) %>%
   mutate(PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal) %>%
   mutate(PCTbel125pov = (B17026_002E+B17026_003E+B17026_004E+B17026_005E)/B17026_001E) %>%
   mutate(PCT125185pov = (B17026_006E+B17026_007E+B17026_008E)/B17026_001E) %>%
   mutate(PCT185300pov = (B17026_009E+B17026_010E)/B17026_001E) %>%
+  mutate(PCTabo300pov = 1-PCTbel125pov-PCT125185pov-PCT185300pov) %>%
   select(-HHtotal, -HHvacant, -HHownerOc,-HHwhite,-starts_with('Edu'), -starts_with('B17026')) %>%
   st_transform(st_crs(data)) 
 
@@ -408,17 +333,22 @@ censusData <- st_join(subdata, boulderTracts) %>%
 
 wildfires <-
   st_read('Wildfire_History.geojson') %>%
-  filter(ENDDATE > "2001-10-19 00:00:00") %>% # FILTER to only fires that happened after 2000
+  filter(ENDDATE > "2006-10-19 00:00:00") %>% # FILTER to only fires that happened after 2000
   select(NAME, geometry) %>%
   st_transform(st_crs(data)) %>%
-  st_buffer(1610) %>%
+  st_buffer(805) %>%
   st_union() %>%
   st_sf() %>%
-  mutate(wildfireHazard = 1)
+  mutate(distance = 0, .before = 1)
 
-wildfireData <- st_join(subdata, wildfires) %>%
+wildfireRings <- rbind(wildfires, multipleRingBuffer(wildfires, 3220, 805))
+
+wildfireData <- st_join(subdata, wildfireRings) %>% 
+  mutate(distance = distance / 1610) %>%
+  rename(distToWildfire = distance) %>%
   st_drop_geometry() %>%
-  mutate(wildfireHazard = replace_na(wildfireHazard, 0))
+  mutate(distToWildfire = replace_na(distToWildfire, 0))
+
 
 
 # D2. CHAMP floodplain maps
@@ -508,5 +438,5 @@ dataset <-
   left_join(., marijuanaData, by = 'MUSA_ID')
 
 # Exclude homes over $10 million
-dataset <- filter(dataset, price < 10000000)
+dataset <- filter(dataset, price < 30000000)
 

@@ -1,6 +1,6 @@
 # ---
 # MUSA 508: Hedonic Home Price Prediction
-# Step 1: Data Wrangling
+# Step 1: Data Wrangling and Modeling
 # Ericson, E. & León, A.
 # ---
 
@@ -324,7 +324,7 @@ neighborhoodData <- st_join(subdata, neighborhoods) %>%
   distinct(.,MUSA_ID, .keep_all = TRUE) %>%
   st_drop_geometry() 
 
-mneighborhoods)
+m(neighborhoods)
 
 # C. CENSUS DATA
 
@@ -362,7 +362,7 @@ varsC <- c('B25003_001E', # Total housing units
            'B15003_023E', # Master's degree
            'B15003_024E', # Professional school degree
            'B15003_025E'  # Doctorate degree
-           )
+)
 
 # import variables from ACS 2019 5-year
 tracts <- 
@@ -383,7 +383,7 @@ tracts <-
          EduMasts = B15003_023E, # Master's degree
          EduProfs = B15003_024E, # Professional school degree
          EduDocts = B15003_025E # Doctorate degree
-         ) %>%
+  ) %>%
   mutate(PCTHHowner = HHownerOc/HHtotal) %>%
   mutate(PCTVacant = HHvacant/HHtotal) %>%
   mutate(PCTHHwhite = HHwhite/HHtotal) %>%
@@ -435,7 +435,7 @@ floodplains <-
   group_by(FLD_ZONE) %>%
   summarize(geometry = st_union(geometry))%>%
   rename(floodRisk = FLD_ZONE)
-  
+
 floodData <- st_join(subdata, floodplains) %>%
   st_drop_geometry() %>%
   mutate(floodRisk = replace_na(floodRisk, 0))
@@ -510,3 +510,194 @@ dataset <-
 # Exclude homes over $10 million
 dataset <- filter(dataset, price < 10000000)
 
+
+
+
+
+
+
+
+
+
+
+# --- EXPLORATORY ANALYSIS ---
+
+# plot correlation of individual variables with home values
+
+# TODO: Try with different variables
+
+st_drop_geometry(dataset) %>%
+  dplyr::select(logPrice, wildfireHazard) %>%
+  pivot_longer(cols = !logPrice, names_to = "Variable", values_to = "Value") %>%
+  ggplot(aes(Value, logPrice)) +
+    geom_point(size = 0.5) +
+    geom_smooth(method = "lm", color = "#FA7800") +
+    facet_wrap(~Variable, ncol = 4, scales = "free") +
+    labs(title = "Price as a function of continuous variables")
+
+# select numeric variables for correlation matrix
+numericVars <- select_if(st_drop_geometry(dataset), is.numeric) %>%
+  dplyr::select(
+    # omit for more legible chart
+    -toPredict,
+    -MUSA_ID) 
+
+
+
+
+# create numeric variable correlation matrix and convert to data frame
+corMatrix <- cor(numericVars)
+corDF <- as.data.frame(as.table(corMatrix)) %>%
+  rename(Cor = Freq)
+
+# review numeric variables most correlated with price
+corPrice <- filter(corDF, Var1 == "price")
+corLogPrice <- filter(corDF, Var1 == "logPrice") # stronger correlations
+
+corFinishedSF <- filter(corDF, Var1 == "TotalFinishedSF")
+
+# generate correlation matrix chart for numeric variables
+ggcorrplot(
+  round(cor(numericVars), 1),
+  p.mat = cor_pmat(numericVars),
+  show.diag = TRUE,
+  colors = c("#25cb10", "#ffffff", "#fa7800"),
+  type = "lower",
+  insig = "blank",
+  lab = TRUE
+) +
+  labs(title = "Correlation across numeric variables")
+
+# select non-numeric variables to convert to dummies
+nonNumericVars <- select_if(st_drop_geometry(dataset), Negate(is.numeric))
+
+# convert categorical variables to dummies
+dummyVars <- dummy.data.frame(nonNumericVars)
+
+# add log(price) column to dummies
+dummiesWithLogPrice <- cbind(dataset$logPrice, dummyVars)
+
+# create dummy variable correlation matrix as data frame
+dummyCorDF <- as.data.frame(as.table(cor(dummiesWithLogPrice)))
+
+# review dummy variables most correlated with price
+dummyCorLogPrice <- filter(dummyCorDF, Var1 == "dataset$logPrice")%>%
+  rename(Cor = Freq)
+
+hoodDummyVars <- dummyVars %>%
+  select(starts_with('neighborhood'))
+
+# combine numeric and dummy variables
+allVars <- cbind(numericVars$logPrice, hoodDummyVars)
+
+
+# generate correlation matrix chart for dummy variables
+# NOTE: only legible when exported as >5000px wide PNG
+ggcorrplot(
+  round(cor(dummyVars), 1),
+  p.mat = cor_pmat(dummyVars),
+  show.diag = TRUE,
+  colors = c("#25cb10", "#ffffff", "#fa7800"),
+  type = "lower",
+  insig = "blank"
+) +
+  labs(title = "Correlation across categorical dummy variables")
+
+
+
+ggcorrplot(
+  round(cor(allVars), 1),
+  p.mat = cor_pmat(allVars),
+  show.diag = TRUE,
+  colors = c("#25cb10", "#ffffff", "#fa7800"),
+  type = "lower",
+  insig = "blank",
+  lab = T
+) +
+  labs(title = "Correlation across all variables")
+
+
+
+
+# Linear Regression
+
+
+datasetReg <- lm(logPrice ~ .,
+                    data = st_drop_geometry(dataset) %>%
+                      dplyr::select(-toPredict, -MUSA_ID, -price)
+)
+summary(datasetReg)
+
+
+
+
+
+# --- MODEL ESTIMATION & VALIDATION ---
+
+regData <- dataset # UPDATE WHEN RUNNING NEW MODEL
+
+#regData <- dplyr::select(regData)
+
+# TODO: Split data into training (75%) and validation (25%) sets
+inTrain <- createDataPartition(
+  y = paste(
+    regData$constMat, 
+    regData$extWall,
+    regData$floodRisk
+  ),
+  p = 0.75, list = FALSE)
+
+homes.training <- regData[inTrain,]
+homes.test <- regData[-inTrain,]
+
+# TODO: Estimate model on training set
+
+reg.training <- lm(logPrice ~ .,
+                   data = st_drop_geometry(regData) %>%
+                     dplyr::select(-toPredict, -MUSA_ID, -price)
+)
+                     
+summary(reg.training)
+
+# TODO: Calculate MAE and MAPE
+homes.test <- homes.test %>%
+  mutate(
+    logPrice.Predict = predict(reg.training, homes.test),
+    price.Predict = exp(logPrice.Predict),
+    price.Error = price.Predict - price,
+    price.AbsError = abs(price.Predict - price),
+    price.APE = (abs(price.Predict - price)/price.Predict)    
+  )
+
+mean(homes.test$price.AbsError)
+mean(homes.test$price.APE)
+
+# TODO: Plot distribution of prediction errors
+
+hist(homes.test$price.Error, breaks = 50)
+hist(homes.test$price.AbsError, breaks = 50)
+hist(homes.test$price.APE, breaks = 50)
+
+# TODO: Perform k-fold cross-validation using caret package
+
+fitControl <- trainControl(method = "cv", number = 100)
+set.seed(825)
+
+reg.cv <- 
+  train(
+    logPrice ~ .,
+    data = st_drop_geometry(homes.training) %>%
+      dplyr::select(-toPredict, -MUSA_ID, -price),
+    method = "lm", 
+    trControl = fitControl, 
+    na.action = na.pass
+  )
+
+reg.cv
+
+# TODO: Plot distribution of MAE
+
+allMAE <- reg.cv$resample[,3]
+hist(allMAE, breaks = 50)
+
+# TODO: Test generalizability across contexts (e.g. race, income)
