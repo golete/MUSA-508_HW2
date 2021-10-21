@@ -305,7 +305,7 @@ districts <- st_read('Zoning_Districts.geojson') %>%
   select(OBJECTID, ZONING, ZNDESC, geometry)
 
 # Load the subcommunities / neighborhoods rough boundaries
-subcomms <-  st_read('Subcommunities.geojson') %>%
+boulderSub <-  st_read('Subcommunities.geojson') %>%
   st_transform(st_crs(data))
 
 

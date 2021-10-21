@@ -27,10 +27,13 @@ options(scipen = 999)
 
 # --- EXPLORATORY ANALYSIS ---
 
+# set data set to explore
+expData <- bestSoFar # UPDATE WHEN CHECKING NEW DATA 
+
 # plot correlation of individual variables with home values
 # TODO: Try with different variables
-st_drop_geometry(cleanHomes) %>% # TODO: Replace with analysis dataset
-  dplyr::select(price, age, effectiveAge, effectiveAge2) %>%
+st_drop_geometry(expData) %>% 
+  dplyr::select(logPrice, age, effectiveAge, effectiveAge2) %>% # REPLACE WITH VARIABLES TO CHECK
   pivot_longer(cols = !price, names_to = "Variable", values_to = "Value") %>%
   ggplot(aes(Value, price)) +
     geom_point(size = 0.5) +
@@ -56,6 +59,7 @@ corPrice <- filter(corDF, Var1 == "price")
 corLogPrice <- filter(corDF, Var1 == "logPrice") # stronger correlations
 
 corFinishedSF <- filter(corDF, Var1 == "TotalFinishedSF")
+corQuality <- filter(corDF, Var1 == "qualityNum")
 
 # generate correlation matrix chart for numeric variables
 ggcorrplot(
@@ -69,19 +73,19 @@ ggcorrplot(
   labs(title = "Correlation across numeric variables")
 
 # select non-numeric variables to convert to dummies
-nonNumericVars <- select_if(st_drop_geometry(cleanHomes), Negate(is.numeric))
+nonNumericVars <- select_if(st_drop_geometry(expData), Negate(is.numeric))
 
 # convert categorical variables to dummies
 dummyVars <- dummy.data.frame(nonNumericVars)
 
 # add log(price) column to dummies
-dummiesWithLogPrice <- cbind(cleanHomes$logPrice, dummyVars)
+dummiesWithLogPrice <- cbind(expData$logPrice, dummyVars)
 
 # create dummy variable correlation matrix as data frame
 dummyCorDF <- as.data.frame(as.table(cor(dummiesWithLogPrice)))
 
 # review dummy variables most correlated with price
-dummyCorLogPrice <- filter(dummyCorDF, Var1 == "cleanHomes$logPrice")%>%
+dummyCorLogPrice <- filter(dummyCorDF, Var1 == "expData$logPrice")%>%
   rename(Cor = Freq)
 
 # combine numeric and dummy variables
@@ -101,11 +105,11 @@ ggcorrplot(
 
 # try a linear regression
 
-cleanHomesReg <- lm(logPrice ~ .,
-                    data = st_drop_geometry(cleanHomes) %>%
+expDataReg <- lm(logPrice ~ .,
+                    data = st_drop_geometry(expData) %>%
                       dplyr::select(-toPredict, -MUSA_ID, -price)
 )
-summary(cleanHomesReg)
+summary(expDataReg)
 
 
 
@@ -113,9 +117,9 @@ summary(cleanHomesReg)
 
 # --- MODEL ESTIMATION & VALIDATION ---
 
-regData <- dataset # UPDATE WHEN RUNNING NEW MODEL
+regData <- finalData %>% filter(toPredict == 0) # UPDATE WHEN RUNNING NEW MODEL
 
-regData <- dplyr::select(regData, -distToWildfire, -floodRisk)
+regData <- dplyr::select(regData, -year, -year_quarter)
 
 # TODO: Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
@@ -126,8 +130,11 @@ inTrain <- createDataPartition(
     regData$heatingType, 
     regData$extWall, 
     regData$extWall2, 
-    regData$roofType,
-    regData$neighborhood # comment out if absent
+    regData$roofType
+    # regData$neighborhood,
+    # regData$countyZone
+    # regData$tractID
+    # regData$zillowHood
   ),
   p = 0.75, list = FALSE)
 
@@ -135,7 +142,6 @@ homes.training <- regData[inTrain,]
 homes.test <- regData[-inTrain,]
 
 # TODO: Estimate model on training set
-
 reg.training <- lm(logPrice ~ .,
                    data = st_drop_geometry(regData) %>%
                      dplyr::select(-toPredict, -MUSA_ID, -price)
@@ -183,5 +189,6 @@ reg.cv
 
 allMAE <- reg.cv$resample[,3]
 hist(allMAE, breaks = 50)
+max(allMAE)
 
 # TODO: Test generalizability across contexts (e.g. race, income)
