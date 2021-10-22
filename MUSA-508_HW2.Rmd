@@ -27,14 +27,16 @@ library(ggstance) # to support jtools plots
 library(mapview)
 
 # Functions
-
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
 # Working setup
+# set API key
+census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
+
 options(scipen = 999)
 g <- glimpse
 m <- mapview
-
+palette5 <- c("#f0f9e8","#bae4bc","#7bccc4","#139ed1","#0868ac")
 ```
 
 ## 0. Intro [PLACEHOLDER]
@@ -243,7 +245,7 @@ neighborhoodData <- st_join(subdata, neighborhoods) %>%
   distinct(.,MUSA_ID, .keep_all = TRUE) %>%
   st_drop_geometry() 
 
-
+m(neighborhoods)
 
 ```
 
@@ -252,10 +254,6 @@ neighborhoodData <- st_join(subdata, neighborhoods) %>%
 ```{r data C: Census, echo= F, warning=F, error=F, message=F}
 
 # C. CENSUS DATA
-
-# set API key
-# NOTE: Set overwrite to "false" to prevent overwriting my own key locally -EE
-census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
 
 year <- 2019
 state <- 08
@@ -311,15 +309,16 @@ tracts <-
          EduProfs = B15003_024E, # Professional school degree
          EduDocts = B15003_025E  # Doctorate degree
   ) %>%
-  mutate(PCTHHowner = HHownerOc/HHtotal) %>%
-  mutate(PCTVacant = HHvacant/HUtotal) %>%
-  mutate(PCTHHwhite = HHwhite/HHtotal) %>%
-  mutate(PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal) %>%
-  mutate(PCTbel125pov = (B17026_002E+B17026_003E+B17026_004E+B17026_005E)/B17026_001E) %>%
-  mutate(PCT125185pov = (B17026_006E+B17026_007E+B17026_008E)/B17026_001E) %>%
-  mutate(PCT185300pov = (B17026_009E+B17026_010E)/B17026_001E) %>%
-  mutate(PCTabo300pov = 1-PCTbel125pov - PCT125185pov - PCT185300pov) %>%
-  select(-HHtotal, -HUtotal, -HHvacant, -HHownerOc,-HHwhite,-starts_with('Edu'), -starts_with('B17026')) %>%
+  mutate(PCTHHowner = HHownerOc/HHtotal,
+         PCTVacant = HHvacant/HUtotal,
+         PCTHHwhite = HHwhite/HHtotal,
+         PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal,
+         PCTbel125pov = (B17026_002E+B17026_003E+B17026_004E+B17026_005E)/B17026_001E,
+         PCT125185pov = (B17026_006E+B17026_007E+B17026_008E)/B17026_001E,
+         PCT185500pov = (B17026_009E+B17026_010E+B17026_011E+B17026_012E)/B17026_001E,
+         PCTabo500pov = 1-PCTbel125pov - PCT125185pov - PCT185500pov) %>%
+  select(-HHtotal, -HUtotal, -HHvacant, -HHownerOc,-HHwhite,
+         -starts_with('Edu'), -starts_with('B17026')) %>%
   st_transform(boulderCRS) 
 
 boulderTracts <- tracts %>%
@@ -430,12 +429,8 @@ dataset <-
   left_join(., wildfireData, by = 'MUSA_ID') %>%
   left_join(., floodData, by = 'MUSA_ID') %>%
   left_join(., wholefoodsData, by = 'MUSA_ID') %>%
-  left_join(., marijuanaData, by = 'MUSA_ID') %>%
-  left_join(., tractsData, by = 'MUSA_ID')
-
-# Exclude homes over $10 million (or not, to keep)
-
-# dataset <- filter(dataset, price < 10000000)
+  left_join(., marijuanaData, by = 'MUSA_ID')# %>%
+  #left_join(., tractsData, by = 'MUSA_ID')
 
 ```
 
@@ -574,14 +569,11 @@ ggcorrplot(
 ```
 
 
-
-
-
 3. OLS Regression
 
 ```{r OLS regression, echo= F, warning=F, error=F, message=F}
 
-# 3. LINEAR  and variable exclussion
+# 3. LINEAR  and variable exclusion
 
 datasetReg <- lm(logPrice ~ .,
                  data = st_drop_geometry(dataset) %>%
@@ -598,6 +590,11 @@ summary(datasetReg)
 
 # 4. MODEL ESTIMATION & VALIDATION
 
+# Filter out outliers and seeming err
+
+dataset <- dataset %>% filter(!MUSA_ID %in% c(8735,1397))
+
+
 # model 2
 d2n <- dataset %>%
   dplyr::select(MUSA_ID,
@@ -612,8 +609,8 @@ d2n <- dataset %>%
                 extWall,
                 starts_with('neigh'),
                 PCTVacant,
-                PCT185300pov,
-                PCTabo300pov,
+                PCT185500pov,
+                PCTabo500pov,
                 PCT25yrHighEdu,
                 floodRisk,
                 wholeFoods,
@@ -634,8 +631,8 @@ d3n <- dataset %>%
                 extWall,
                 starts_with('neigh'),
                 PCTVacant,
-                PCT185300pov,
-                PCTabo300pov,
+                PCT185500pov,
+                PCTabo500pov,
                 PCT25yrHighEdu,
                 floodRisk,
                 wholeFoods,
@@ -653,14 +650,16 @@ summary(RegA)
 # PLUG IN MODEL
 regData <- d3n # Update with tested model
 
-regData %>%
-  filter(toPredict == 0)
+# Remove the toPredict homes
+regData <- regData %>%
+  filter(toPredict != 1)
 
 # Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
   y = paste(
     regData$extWall,
-    regData$floodRisk
+    regData$floodRisk,
+    regData$neighborhood   #take out neighborhoods to test Neighborhood effect
   ),
   p = 0.75, list = FALSE)
 
@@ -685,14 +684,12 @@ homes.test <- homes.test %>%
     price.APE = (abs(price.Predict - price)/price.Predict)    
   )
 
-ssa <- homes.test$price.AbsError
-hist(ssa)
-mean(homes.test$price.AbsError) # MAE
-mean(homes.test$price.APE)      # MAPE
+mean(homes.test$price.AbsError, na.rm = T) # MAE
+mean(homes.test$price.APE, na.rm = T)      # MAPE
 
-# TPlot distribution of prediction errors
+# Plot distribution of prediction errors
 
-hist(homes.test$price.Error, breaks = 50)
+hist(homes.test$price.Error, breaks = 50) # Its not plotting or giving a warning???
 hist(homes.test$price.AbsError, breaks = 50)
 hist(homes.test$price.APE, breaks = 50)
 
@@ -710,7 +707,7 @@ reg.cv <-
       dplyr::select(-toPredict, -MUSA_ID, -price),
     method = "lm", 
     trControl = fitControl, 
-    na.action = na.pass
+    na.action = na.omit
   )
 reg.cv
 
@@ -734,17 +731,17 @@ hist(allMAE, breaks = 50)
 # 5. SPATIAL LAG
 
 coords.test <-  st_coordinates(homes.test) 
-
+# Take value of neighbors for weighted matrix
 neighborList.test <- knn2nb(knearneigh(coords.test, 5))
-
+# Create spatial weight matrix
 spatialWeights.test <- nb2listw(neighborList.test, style="W")
 
-homes.test %>% 
+homes.test %>%
   mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error)) %>%
-  ggplot(aes(lagPriceError, price.Error))
+  ggplot(aes(x=lagPriceError, y=price.Error))
 
 
-
+# Run the actual Moran's I
 moranTest <- moran.mc(homes.test$price.Error, 
                       spatialWeights.test, nsim = 999)
 
@@ -759,6 +756,7 @@ ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
   plotTheme()
 
 
+
 left_join(
   st_drop_geometry(homes.test) %>%
     group_by(neighborhood) %>%
@@ -770,19 +768,6 @@ left_join(
     group_by(neighborhood) %>%
     summarize(meanPrediction = mean(predict.fe))) %>%
   kable() %>% kable_styling()
-
-
-
-
-```
-
-```{r spatial lag 2, echo= F, warning=F, error=F, message=F}
-
-
-
-
-
-
 
 ```
 
@@ -796,7 +781,9 @@ left_join(
 
 
 reg.nhood <- lm(price ~ ., data = as.data.frame(homes.training) %>% 
-                  dplyr::select(neighborhood, price))
+                  dplyr::select(-geometry))
+summary(reg.nhood)
+
 
 homes.test.nhood <-
   homes.test %>%
@@ -804,44 +791,45 @@ homes.test.nhood <-
          price.Predict = predict(reg.nhood, homes.test),
          price.Error = price.Predict- price,
          price.AbsError = abs(price.Predict- price),
-         price.APE = (abs(price.Predict- price)) / price)%>%
-  filter(price < 5000000)
+         price.APE = (abs(price.Predict- price)) / price) %>%
+  filter(price < 10000000)
 
 
-
-aaa <- dplyr::select(homes.test, starts_with("price"), Regression, neighborhood) %>%
+bothRegressions <- rbind(
+  dplyr::select(homes.test, starts_with("price"), Regression, neighborhood) %>%
+  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error)),
+  dplyr::select(homes.test.nhood, starts_with("price"), Regression, neighborhood) %>%
   mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
-
-bbb <- dplyr::select(homes.test.nhood, starts_with("price"), Regression, neighborhood) %>%
-  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))¡¡¡¡¡=
-
-dim(aaa)
-dim(bbb)
-
-bothRegressions <- rbind(aaa,bbb) 
+  )
 
 
-
-
-
-# *******************************************
-# below this the code is not translated from the book
-
+# Produce a table comparing neighborhood effects
 st_drop_geometry(bothRegressions) %>%
-  gather(Variable, Value, -Regression, -Name) %>%
-  filter(Variable == "SalePrice.AbsError" | Variable == "SalePrice.APE") %>%
+  gather(Variable, Value, -Regression, -neighborhood) %>%
+  filter(Variable == "price.AbsError" | Variable == "price.APE") %>%
   group_by(Regression, Variable) %>%
     summarize(meanValue = mean(Value, na.rm = T)) %>%
     spread(Variable, meanValue) %>%
     kable()
 
+# Why is the Neighborhood effects APE so bad?
+
+```
+
+
+
+
+
+```{r Neighborhood effects}
+
+
 bothRegressions %>%
-  dplyr::select(SalePrice.Predict, SalePrice, Regression) %>%
-    ggplot(aes(SalePrice, SalePrice.Predict)) +
+  dplyr::select(price.Predict, price, Regression) %>%
+    ggplot(aes(price, price.Predict)) +
   geom_point() +
-  stat_smooth(aes(SalePrice, SalePrice), 
+  stat_smooth(aes(price, price), 
              method = "lm", se = FALSE, size = 1, colour="#FA7800") + 
-  stat_smooth(aes(SalePrice.Predict, SalePrice), 
+  stat_smooth(aes(price.Predict, price), 
               method = "lm", se = FALSE, size = 1, colour="#25CB10") +
   facet_wrap(~Regression) +
   labs(title="Predicted sale price as a function of observed price",
@@ -850,21 +838,23 @@ bothRegressions %>%
 
 
 
-st_drop_geometry(bothRegressions) %>%
-  group_by(Regression, Name) %>%
-  summarize(mean.MAPE = mean(SalePrice.APE, na.rm = T)) %>%
-  ungroup() %>% 
-  left_join(nhoods) %>%
-    st_sf() %>%
-    ggplot() + 
-      geom_sf(aes(fill = mean.MAPE)) +
-      geom_sf(data = bothRegressions, colour = "black", size = .5) +
-      facet_wrap(~Regression) +
-      scale_fill_gradient(low = palette5[1], high = palette5[5],
-                          name = "MAPE") +
-      labs(title = "Mean test set MAPE by neighborhood") +
-      mapTheme()
+# set neighborhood geometry
+nhoods <- neighborhoods
 
+st_drop_geometry(bothRegressions) %>%
+  group_by(Regression, neighborhood) %>%
+  summarize(mean.MAPE = mean(price.APE, na.rm = T)) %>%
+  ungroup()%>%
+  left_join(nhoods) %>%
+  st_sf() %>%
+  ggplot() + 
+    geom_sf(aes(fill = mean.MAPE)) +
+    geom_sf(data = bothRegressions, colour = "black", size = .5) +
+    facet_wrap(~Regression) +
+    scale_fill_gradient(low = palette5[1], high = palette5[5],
+                        name = "MAPE") +
+    labs(title = "Mean test set MAPE by neighborhood") +
+    mapTheme()
 
 
 ```
@@ -880,26 +870,22 @@ st_drop_geometry(bothRegressions) %>%
 
 # Replace with getting income data from our dataset?
 
-tracts17 <- 
-  get_acs(geography = "tract", variables = c("B01001_001E","B01001A_001E","B06011_001"), 
-          year = 2017, state=25, county=025, geometry=T, output = "wide") %>%
-  st_transform('ESRI:102286')  %>%
-  rename(TotalPop = B01001_001E,
-         NumberWhites = B01001A_001E,
-         Median_Income = B06011_001E) %>%
-  mutate(percentWhite = NumberWhites / TotalPop,
-         raceContext = ifelse(percentWhite > .5, "Majority White", "Majority Non-White"),
-         incomeContext = ifelse(Median_Income > 32322, "High Income", "Low Income"))
+g(tracts)
+
+povLine <- tracts %>%
+  select(PCTbel125pov,
+         PCT125185pov,
+         PCT185500pov,
+         PCTabo500pov) %>%
+  mutate(yesWealth= PCTabo500pov,
+         notWealth = PCTbel125pov+PCT125185pov+PCT185500pov,
+         totalPop = notWealth + yesWealth) %>%
+  mutate(percentWealth = notWealth / totalPop,
+         povContext = ifelse(percentWealth > .5, "Majority Wealthy", "Majority Non-Wealthy"))
 
 
-
-
-grid.arrange(ncol = 2,
-  ggplot() + geom_sf(data = na.omit(tracts17), aes(fill = raceContext)) +
-    scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Race Context") +
-    labs(title = "Race Context") +
-    mapTheme() + theme(legend.position="bottom"), 
-  ggplot() + geom_sf(data = na.omit(tracts17), aes(fill = incomeContext)) +
+grid.arrange(ncol = 1,
+  ggplot() + geom_sf(data = na.omit(povLine), aes(fill = povContext)) +
     scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Income Context") +
     labs(title = "Income Context") +
     mapTheme() + theme(legend.position="bottom"))
@@ -912,23 +898,13 @@ grid.arrange(ncol = 2,
 ```{r Generalizabiliy tables, echo= F, warning=F, error=F, message=F}
 
 
-st_join(bothRegressions, tracts17) %>% 
-  group_by(Regression, raceContext) %>%
-  summarize(mean.MAPE = scales::percent(mean(SalePrice.APE, na.rm = T))) %>%
+st_join(bothRegressions, povLine) %>% 
+  group_by(Regression, povContext) %>%
+  summarize(mean.MAPE = scales::percent(mean(price.APE, na.rm = T))) %>%
   st_drop_geometry() %>%
-  spread(raceContext, mean.MAPE) %>%
+  spread(povContext, mean.MAPE) %>%
   kable(caption = "Test set MAPE by neighborhood racial context")
 
-
-
-
-st_join(bothRegressions, tracts17) %>% 
-  filter(!is.na(incomeContext)) %>%
-  group_by(Regression, incomeContext) %>%
-  summarize(mean.MAPE = scales::percent(mean(SalePrice.APE, na.rm = T))) %>%
-  st_drop_geometry() %>%
-  spread(incomeContext, mean.MAPE) %>%
-  kable(caption = "Test set MAPE by neighborhood income context")
 
 
 ```
