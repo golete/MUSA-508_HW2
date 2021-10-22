@@ -43,7 +43,16 @@ palette5 <- c("#f0f9e8","#bae4bc","#7bccc4","#139ed1","#0868ac")
 
 
 
+
+
+
+
 # 1. Data wrangling 
+
+
+
+
+
 
 ```{r data A: homes, echo= F, warning=F, error=F, message=F}
 
@@ -451,7 +460,7 @@ varsX <- c(
   'houseSize',
   'TotalFinishedSF',
   'nbrRooms',       # KEEP fn, choose between house size or this
-  'btrRatio ',      # KEEP fn
+  'btrRatio',      # KEEP fn
   'qualityNum',     # KEEP
   'effectiveAge',   # KEEP
   'builtEra',       # KEEP
@@ -462,6 +471,8 @@ varsX <- c(
   'extWall'         # KEEP Good but may be colinear with constMat
   )
 
+
+
 st_drop_geometry(dataset) %>%
   dplyr::select(logPrice, btrRatio) %>%
   pivot_longer(cols = !logPrice, names_to = "Variable", values_to = "Value") %>%
@@ -470,6 +481,7 @@ st_drop_geometry(dataset) %>%
     geom_smooth(method = "lm", color = "#FA7800") +
     facet_wrap(~Variable, ncol = 4, scales = "free") +
     labs(title = "Price as a function of continuous variables")
+
 
 
 st_drop_geometry(dataset) %>% 
@@ -482,6 +494,8 @@ st_drop_geometry(dataset) %>%
   facet_wrap(~Variable, ncol = 1, scales = "free") +
   labs(title = "Price as a function of\ncategorical variables", y = "Mean_Price") +
   plotTheme() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
 
 
 # select numeric variables for correlation matrix
@@ -553,6 +567,8 @@ ggcorrplot(
   insig = "blank"
 ) +
   labs(title = "Correlation across categorical dummy variables")
+
+
 
 # This GG plot is not working
 ggcorrplot(
@@ -652,14 +668,13 @@ regData <- d3n # Update with tested model
 
 # Remove the toPredict homes
 regData <- regData %>%
-  filter(toPredict != 1)
+  filter(toPredict != 1) 
 
 # Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
   y = paste(
     regData$extWall,
-    regData$floodRisk,
-    regData$neighborhood   #take out neighborhoods to test Neighborhood effect
+    regData$floodRisk
   ),
   p = 0.75, list = FALSE)
 
@@ -721,9 +736,6 @@ hist(allMAE, breaks = 50)
 
 
 
-
-
-
 5. Spatial Lag [SIMPLIFY TERM]
 
 ```{r Spatial lag test, echo= F, warning=F, error=F, message=F}
@@ -738,7 +750,7 @@ spatialWeights.test <- nb2listw(neighborList.test, style="W")
 
 homes.test %>%
   mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error)) %>%
-  ggplot(aes(x=lagPriceError, y=price.Error))
+  ggplot(aes(x=lagPriceError, y=price.Error)) # This doesn't plot anything
 
 
 # Run the actual Moran's I
@@ -788,11 +800,11 @@ summary(reg.nhood)
 homes.test.nhood <-
   homes.test %>%
   mutate(Regression = "Neighborhood Effects",
-         price.Predict = predict(reg.nhood, homes.test),
+         logPrice.Predict = predict(reg.training, homes.test),
+         price.Predict = exp(logPrice.Predict),
          price.Error = price.Predict- price,
          price.AbsError = abs(price.Predict- price),
-         price.APE = (abs(price.Predict- price)) / price) %>%
-  filter(price < 10000000)
+         price.APE = (abs(price.Predict- price)) / price) 
 
 
 bothRegressions <- rbind(
@@ -801,7 +813,6 @@ bothRegressions <- rbind(
   dplyr::select(homes.test.nhood, starts_with("price"), Regression, neighborhood) %>%
   mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
   )
-
 
 # Produce a table comparing neighborhood effects
 st_drop_geometry(bothRegressions) %>%
@@ -904,7 +915,6 @@ st_join(bothRegressions, povLine) %>%
   st_drop_geometry() %>%
   spread(povContext, mean.MAPE) %>%
   kable(caption = "Test set MAPE by neighborhood racial context")
-
 
 
 ```
