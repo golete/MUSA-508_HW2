@@ -293,12 +293,28 @@ varsC <- c('B25003_001E', # Total housing units
            'B15003_022E', # Bachelor's degree
            'B15003_023E', # Master's degree
            'B15003_024E', # Professional school degree
-           'B15003_025E'  # Doctorate degree
-)
+           'B15003_025E', # Doctorate degree
+           'B19001_001E', # Median income - Total
+           'B19001_002E', # Median income - Less than 10
+           'B19001_003E', # Median income - 10-15
+           'B19001_004E', # Median income 15-20
+           'B19001_005E', # Median income 20-25
+           'B19001_006E', # Median income 25-30
+           'B19001_007E', # Median income 30-35
+           'B19001_008E', # Median income 35-40
+           'B19001_009E', # Median income 40-45
+           'B19001_010E', # Median income 45-50
+           'B19001_011E', # Median income 50-60
+           'B19001_012E', # Median income 60-75
+           'B19001_013E', # Median income 75-100
+           'B19001_014E', # Median income 100-125
+           'B19001_015E', # Median income 125-150
+           'B19001_016E', # Median income 150-200
+           'B19001_017E') # Median income 200 or more
 
 # import variables from ACS 2019 5-year
-tracts <- 
-  get_acs(geography = "tract",
+blocks <- 
+  get_acs(geography = "block group",
           variables = varsC,
           year = year,
           state = state,
@@ -315,28 +331,71 @@ tracts <-
          EduBachs = B15003_022E, # Bachelor's degree
          EduMasts = B15003_023E, # Master's degree
          EduProfs = B15003_024E, # Professional school degree
-         EduDocts = B15003_025E  # Doctorate degree
-  ) %>%
+         EduDocts = B15003_025E, # Doctorate degree
+         HHMedInc = B19001_001E, # Median income - Total
+         HHMedInc000 = B19001_002E, # Median income - Less than 10
+         HHMedInc010 = B19001_003E, # Median income - 10-15
+         HHMedInc015 = B19001_004E, # Median income 15-20
+         HHMedInc020 = B19001_005E, # Median income 20-25
+         HHMedInc025 = B19001_006E, # Median income 25-30
+         HHMedInc030 = B19001_007E, # Median income 30-35
+         HHMedInc035 = B19001_008E, # Median income 35-40
+         HHMedInc040 = B19001_009E, # Median income 40-45
+         HHMedInc045 = B19001_010E, # Median income 45-50
+         HHMedInc050 = B19001_011E, # Median income 50-60
+         HHMedInc060 = B19001_012E, # Median income 60-75
+         HHMedInc075 = B19001_013E, # Median income 75-100
+         HHMedInc100 = B19001_014E, # Median income 100-125
+         HHMedInc125 = B19001_015E, # Median income 125-150
+         HHMedInc150 = B19001_016E, # Median income 150-200
+         HHMedInc200 = B19001_017E # Median income 200 or more 
+         )%>%
   mutate(PCTHHowner = HHownerOc/HHtotal,
          PCTVacant = HHvacant/HUtotal,
          PCTHHwhite = HHwhite/HHtotal,
          PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal,
-         PCTbel125pov = (B17026_002E+B17026_003E+B17026_004E+B17026_005E)/B17026_001E,
-         PCT125185pov = (B17026_006E+B17026_007E+B17026_008E)/B17026_001E,
-         PCT185500pov = (B17026_009E+B17026_010E+B17026_011E+B17026_012E)/B17026_001E,
-         PCTabo500pov = 1-PCTbel125pov - PCT125185pov - PCT185500pov) %>%
+         PCTHHMI000 = HHMedInc000/HHMedInc,
+         PCTHHMI010 = HHMedInc010/HHMedInc,
+         PCTHHMI015 = HHMedInc015/HHMedInc,
+         PCTHHMI020 = HHMedInc020/HHMedInc,
+         PCTHHMI025 = HHMedInc025/HHMedInc,
+         PCTHHMI030 = HHMedInc030/HHMedInc,
+         PCTHHMI035 = HHMedInc035/HHMedInc,
+         PCTHHMI040 = HHMedInc040/HHMedInc,
+         PCTHHMI045 = HHMedInc045/HHMedInc,
+         PCTHHMI050 = HHMedInc050/HHMedInc,
+         PCTHHMI060 = HHMedInc060/HHMedInc,
+         PCTHHMI075 = HHMedInc075/HHMedInc,
+         PCTHHMI100 = HHMedInc100/HHMedInc,
+         PCTHHMI125 = HHMedInc125/HHMedInc,
+         PCTHHMI150 = HHMedInc150/HHMedInc,
+         PCTHHMI200 = HHMedInc200/HHMedInc) %>%
   select(-HHtotal, -HUtotal, -HHvacant, -HHownerOc,-HHwhite,
-         -starts_with('Edu'), -starts_with('B17026')) %>%
-  rename(tract = GEOID) %>%
-  st_transform(boulderCRS) 
+         -starts_with('Edu'), -starts_with('HHMedInc'), -starts_with('B17026')) %>%
+  rename(block = GEOID) %>%
+  st_transform(boulderCRS)
 
-boulderTracts <- tracts %>%
-  select(tract, geometry) 
+boulderBlocks <- blocks %>%
+  select(block, geometry)
 
-censusData <- st_join(subdata, boulderTracts) %>%
+censusData <- st_join(subdata, boulder) %>%
   st_drop_geometry() %>%
-  left_join(., tracts, by='tract') %>%
-  select(-tract, -NAME, -geometry)
+  left_join(., blocks, by='block') %>%
+  select(-NAME, -geometry)
+
+# Get the Tracts for defining the neighborhoods
+
+boulderTracts <- 
+  get_acs(geography = "tract",
+          variables = 'B25003_001E',
+          year = year,
+          state = state,
+          county = county,
+          geometry = T,
+          output = 'wide') %>%
+  dplyr::select(GEOID, geometry)%>%
+  rename(tract = GEOID) %>%
+  st_transform(boulderCRS)
 
 tractsData <- st_join(subdata, boulderTracts)%>%
   st_drop_geometry()
@@ -449,16 +508,15 @@ export <-
 # 2. Exploratory Analysis
 
 
-```{r EDA: Initila analysis, echo= F, warning=F, error=F, message=F}
+```{r EDA: Initial analysis, echo= F, warning=F, error=F, message=F}
 
 # 2. EXPLORATORY ANALYSIS
 
 # Decide the geometry to use for neighborhoods
 # 1 for neighborhoods and 2 for tracts
 
-idx <- 1
+idx <- 2
 
-geography <- c(neighborhoods, boulderTracts)
 geounit <- c('community', 'tract')
 
 dataset <- export %>%
@@ -470,10 +528,7 @@ dataset <- export %>%
 
 ```{r EDA: Correlations, echo= F, warning=F, error=F, message=F}
 
-
-
 # plot correlation of individual variables with home values
-
 
 varsX <- c(
   'houseSize',
@@ -610,7 +665,6 @@ datasetReg <- lm(logPrice ~ .,
                    dplyr::select(-price, -MUSA_ID, -toPredict))
 summary(datasetReg)
 
-
 ```
 
 
@@ -620,10 +674,8 @@ summary(datasetReg)
 
 # 4. MODEL ESTIMATION & VALIDATION
 
-# Filter out outliers and seeming err
-
-dataset <- dataset %>% filter(!MUSA_ID %in% c(8735,1397))
-
+# Filter out outliers and apparent computing errors
+dataset <- dataset %>% filter(!MUSA_ID %in% c(8735,1397,5258))
 
 # model 2
 d2n <- dataset %>%
@@ -638,9 +690,8 @@ d2n <- dataset %>%
                 designCodeDscr,
                 extWall,
                 starts_with('neigh'),
+                starts_with('PCTHHMI'),
                 PCTVacant,
-                PCT185500pov,
-                PCTabo500pov,
                 PCT25yrHighEdu,
                 floodRisk,
                 wholeFoods,
@@ -660,9 +711,8 @@ d3n <- dataset %>%
                 designCodeDscr,
                 extWall,
                 starts_with('neigh'),
+                starts_with('PCTHHMI'),
                 PCTVacant,
-                PCT185500pov,
-                PCTabo500pov,
                 PCT25yrHighEdu,
                 floodRisk,
                 wholeFoods,
@@ -710,6 +760,8 @@ reg.training <- lm(logPrice ~ .,
 summary(reg.training)
 
 
+
+
 # Calculate MAE and MAPE
 homes.test <- homes.test %>%
   mutate(
@@ -737,7 +789,6 @@ hist(homes.test$price.APE, breaks = 50)
 ```{r k fold cross validation, echo= F, warning=F, error=F, message=F}
 
 # Perform k-fold cross-validation using caret package
-
 fitControl <- trainControl(method = "cv", number = 100)
 set.seed(825)
 
@@ -755,10 +806,8 @@ reg.cv <-
 reg.cv
 
 # Plot distribution of MAE
-
 allMAE <- reg.cv$resample[,3]
 hist(allMAE, breaks = 50)
-
 
 ```
 
@@ -785,7 +834,7 @@ moranTest <- moran.mc(homes.test$price.Error,
                       spatialWeights.test, nsim = 999)
 
 
-
+# Plot of the Observed Moran's I and the permutations Moran's I distribution
 ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
   geom_histogram(binwidth = 0.01) +
   geom_vline(aes(xintercept = moranTest$statistic), colour = "#FA7800",size=1) +
@@ -883,8 +932,8 @@ bothRegressions %>%
 
 
 # set neighborhood geometry
-nhoods <- neighborhoods %>%
-  rename(neighborhood = community)
+nhoods <- boulderTracts %>%
+  rename(neighborhood = geounit[idx])
 
 st_drop_geometry(bothRegressions) %>%
   group_by(Regression, neighborhood) %>%
@@ -899,6 +948,7 @@ st_drop_geometry(bothRegressions) %>%
     scale_fill_gradient(low = palette5[1], high = palette5[5],
                         name = "MAPE") +
     labs(title = "Mean test set MAPE by neighborhood") +
+    labs(title = "Census tracts") +
     mapTheme()
 
 
@@ -913,13 +963,7 @@ st_drop_geometry(bothRegressions) %>%
 
 # 7. GENERALIZABILITY TEST
 
-
-
-
-
-# Replace with getting income data from our dataset?
-
-
+# Replace with NEW INCOME DATA
 
 povLine <- tracts %>%
   select(PCTbel125pov,
@@ -939,7 +983,7 @@ grid.arrange(ncol = 1,
     labs(title = "Income Context") +
     mapTheme() + theme(legend.position="bottom"))
 
-
+m(wholeFoods)
 
 ```
 
