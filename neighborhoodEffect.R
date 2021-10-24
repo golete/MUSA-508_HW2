@@ -98,9 +98,12 @@ homeRecodes <- data %>%
   )
 
 homeData <- homeRecodes %>%
-  # exclude extreme outlier listed as sold for $31.5 million; 
-  # listing strongly suggests incorrectly entered: https://www.zillow.com/homedetails/3335-Talisman-Ct-APT-C-Boulder-CO-80301/13222117_zpid/
-  filter(MUSA_ID != 8735) %>%
+  # exclude extreme outliers identified as data entry errors;
+  # MUSA_ID 8735 is listed at $31.5 million but sold for $315,000: 
+  # https://www.zillow.com/homedetails/3335-Talisman-Ct-APT-C-Boulder-CO-80301/13222117_zpid/
+  # 1397 is listed at $5 million but sold for $500,000:
+  # https://www.zillow.com/homedetails/712-Sedge-Way-Lafayette-CO-80026/13232125_zpid/
+  filter(!MUSA_ID %in% c(8735, 1397)) %>%
   # drop unneeded columns
   dplyr::select(
     # same for all
@@ -139,8 +142,6 @@ homeData <- homeRecodes %>%
     -builtYear
   )
 
-homeIDs <- dplyr::select(homeData, MUSA_ID)
-
 # ADD CENSUS TRACTS
 census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
 
@@ -163,71 +164,130 @@ tracts <-
 tractData <- st_join(homeData, tracts) %>%
   rename(tractID = GEOID)
 
-# ADD CITY FROM COUNTY ZONING
-countyZoning <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
-  st_transform(st_crs(boulderCRS)) %>%
-  dplyr::select(ZONECLASS, ZONEDESC, geometry) %>%
-  mutate(
-    city = if_else(str_detect(ZONECLASS, "X"), as.character(ZONEDESC), "Unincorporated"),
-  )
-
-cityData <- st_join(tractData, countyZoning) %>%
-  dplyr::select(-ZONECLASS, -ZONEDESC)
-
-# ADD BOULDER SUBCOMMUNITIES
-boulderSubcomms <- st_read('Subcommunities.geojson') %>%
-  st_transform(st_crs(boulderCRS)) %>%
-  dplyr::select(SUBCOMMUNITY, geometry)
-
-zillowHoods <- st_read('ZillowNeighborhoodsBoulderCounty.geojson') %>%
-  st_transform(st_crs(boulderCRS)) %>%
-  dplyr::select(Name, geometry)
-
-boulderSubcomms_join <- st_join(cityData, boulderSubcomms) %>%
-  mutate(
-    subcommunity = if_else(is.na(SUBCOMMUNITY), "None", as.character(SUBCOMMUNITY))
-  )
-
-longmontHoods_join <- st_join(boulderSubcomms_join, zillowHoods) %>%
-  mutate(
-    zillowHood = if_else(is.na(Name), "None", as.character(Name)),
-    subcommunity = if_else(city == "Longmont", as.character(zillowHood), as.character(subcommunity))
-  )
-
-subcommData <- longmontHoods_join %>%
-  dplyr::select(-SUBCOMMUNITY, -Name, -zillowHood)
-
 # new data frame
-finalData <- subcommData
+finalData <- tractData
 
-# --- GENERATE PREDICTIONS ---
+# ESTIMATE REGRESSION WITHOUT TRACTS
 
-regData <- finalData
+# remove "neighborhoods" (tracts) from regression data
+regData <- finalData %>% 
+  filter(toPredict == 0) %>%
+  dplyr::select(-tractID)
 
-homes.training <- filter(regData, toPredict == 0)
-homes.test <- filter(regData, toPredict == 1)
+# split data into training (75%) and validation (25%) sets
+inTrain <- createDataPartition(
+  y = paste(
+    regData$constMat, 
+    regData$basement, 
+    regData$acType, 
+    regData$heatingType, 
+    regData$extWall, 
+    regData$extWall2, 
+    regData$roofType,
+    regData$tractID
+  ),
+  p = 0.75, list = FALSE)
+
+homes.training <- regData[inTrain,]
+homes.test <- regData[-inTrain,]
 
 # estimate model on training set
 reg.training <- lm(logPrice ~ .,
                    data = st_drop_geometry(regData) %>%
-                     dplyr::select(-toPredict, -MUSA_ID, -price),
-                   na.action = na.exclude
+                     dplyr::select(-toPredict, -MUSA_ID, -price, -tractID)
 )
 
 summary(reg.training)
 
-# predict home prices
+# calculate MAE and MAPE
 homes.test <- homes.test %>%
   mutate(
     logPrice.Predict = predict(reg.training, homes.test),
-    price = exp(logPrice.Predict)
+    price.Predict = exp(logPrice.Predict),
+    price.Error = price.Predict - price,
+    price.AbsError = abs(price.Predict - price),
+    price.APE = (abs(price.Predict - price)/price.Predict)    
   )
 
-# select submission columns
-submission <- homes.test %>%
-  dplyr::select(MUSA_ID, price) %>%
-  st_drop_geometry()
+mean(homes.test$price.AbsError)
+mean(homes.test$price.APE)
 
-# export to csv
-write.csv(submission,"89ers.csv", row.names = TRUE)
+# calculate spatial lag
+coords.test <- st_coordinates(homes.test)
+
+neighborList.test <- knn2nb(knearneigh(coords.test))
+
+spatialWeights.test <- nb2listw(neighborList.test, style = "W")
+
+homes.test %>%
+  mutate(lagPriceError = lag.listw(spatialWeights.test, price.AbsError)) 
+
+# save results
+noTracts.test <- homes.test %>%
+  mutate(Regression = "Baseline Regression") %>%
+  st_join(tracts) %>%
+  rename(tractID = GEOID)
+
+# ESTIMATE REGRESSION WITH TRACTS
+
+regData <- finalData %>% 
+  filter(toPredict == 0)
+
+# split data into training (75%) and validation (25%) sets
+inTrain <- createDataPartition(
+  y = paste(
+    regData$constMat, 
+    regData$basement, 
+    regData$acType, 
+    regData$heatingType, 
+    regData$extWall, 
+    regData$extWall2, 
+    regData$roofType
+  ),
+  p = 0.75, list = FALSE)
+
+homes.training <- regData[inTrain,]
+homes.test <- regData[-inTrain,]
+
+# estimate model on training set
+reg.training <- lm(logPrice ~ .,
+                   data = st_drop_geometry(regData) %>%
+                     dplyr::select(-toPredict, -MUSA_ID, -price)
+)
+
+summary(reg.training)
+
+# calculate MAE and MAPE
+homes.test <- homes.test %>%
+  mutate(
+    logPrice.Predict = predict(reg.training, homes.test),
+    price.Predict = exp(logPrice.Predict),
+    price.Error = price.Predict - price,
+    price.AbsError = abs(price.Predict - price),
+    price.APE = (abs(price.Predict - price)/price.Predict)    
+  )
+
+mean(homes.test$price.AbsError)
+mean(homes.test$price.APE)
+
+# plot distribution of prediction errors
+hist(homes.test$price.Error, breaks = 50)
+hist(homes.test$price.AbsError, breaks = 50)
+hist(homes.test$price.APE, breaks = 50)
+
+# save results
+withTracts.test <- homes.test %>%
+  mutate(Regression = "Neighborhood Effects")
+
+# COMPARE REGRESSIONS
+bothRegressions <- rbind(
+  dplyr::select(noTracts.test, starts_with("price"), Regression, tractID) %>%
+    mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error)),
+  dplyr::select(withTracts.test, starts_with(price), Regression, tractID) %>%
+    mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
+)
+
+
+# --- TRY THIS AGAIN ---
+
 

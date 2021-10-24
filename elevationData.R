@@ -2,17 +2,7 @@
 library(tidyverse)
 library(tidycensus)
 library(sf)
-library(dummies)
-library(spdep)
-library(caret)
-# library(ckanr) # TODO: Remove if not needed; used to read CKAN APIs
-library(FNN)
-library(grid)
-library(gridExtra)
-library(ggcorrplot)
-library(kableExtra)
-library(jtools)     # for regression model plots
-library(ggstance) # to support jtools plots
+library(elevatr)
 
 # avoid scientific notation
 options(scipen = 999)
@@ -21,7 +11,14 @@ boulderCRS <- 'ESRI:102253' # NAD 1983 HARN StatePlane Colorado North FIPS 0501
 
 data <- st_read("studentData.geojson") %>%
   st_set_crs('ESRI:102254') %>%
-  st_transform(boulderCRS)
+  st_transform(boulderCRS) %>%
+  filter(toPredict == 0) %>%
+  # exclude extreme outliers identified as data entry errors;
+  # MUSA_ID 8735 is listed at $31.5 million but sold for $315,000: 
+  # https://www.zillow.com/homedetails/3335-Talisman-Ct-APT-C-Boulder-CO-80301/13222117_zpid/
+  # 1397 is listed at $5 million but sold for $500,000:
+  # https://www.zillow.com/homedetails/712-Sedge-Way-Lafayette-CO-80026/13232125_zpid/
+  filter(!MUSA_ID %in% c(8735, 1397))
 
 homeRecodes <- data %>%
   mutate(
@@ -98,9 +95,6 @@ homeRecodes <- data %>%
   )
 
 homeData <- homeRecodes %>%
-  # exclude extreme outlier listed as sold for $31.5 million; 
-  # listing strongly suggests incorrectly entered: https://www.zillow.com/homedetails/3335-Talisman-Ct-APT-C-Boulder-CO-80301/13222117_zpid/
-  filter(MUSA_ID != 8735) %>%
   # drop unneeded columns
   dplyr::select(
     # same for all
@@ -136,10 +130,12 @@ homeData <- homeRecodes %>%
     -Roof_CoverDscr,
     # recoded
     -qualityCodeDscr,
-    -builtYear
+    -builtYear,
+    -section_num,
+    # colinear and/or not predictive
+    -bld_num
   )
 
-homeIDs <- dplyr::select(homeData, MUSA_ID)
 
 # ADD CENSUS TRACTS
 census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
@@ -163,71 +159,17 @@ tracts <-
 tractData <- st_join(homeData, tracts) %>%
   rename(tractID = GEOID)
 
-# ADD CITY FROM COUNTY ZONING
-countyZoning <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
-  st_transform(st_crs(boulderCRS)) %>%
-  dplyr::select(ZONECLASS, ZONEDESC, geometry) %>%
-  mutate(
-    city = if_else(str_detect(ZONECLASS, "X"), as.character(ZONEDESC), "Unincorporated"),
-  )
-
-cityData <- st_join(tractData, countyZoning) %>%
-  dplyr::select(-ZONECLASS, -ZONEDESC)
-
-# ADD BOULDER SUBCOMMUNITIES
-boulderSubcomms <- st_read('Subcommunities.geojson') %>%
-  st_transform(st_crs(boulderCRS)) %>%
-  dplyr::select(SUBCOMMUNITY, geometry)
-
-zillowHoods <- st_read('ZillowNeighborhoodsBoulderCounty.geojson') %>%
-  st_transform(st_crs(boulderCRS)) %>%
-  dplyr::select(Name, geometry)
-
-boulderSubcomms_join <- st_join(cityData, boulderSubcomms) %>%
-  mutate(
-    subcommunity = if_else(is.na(SUBCOMMUNITY), "None", as.character(SUBCOMMUNITY))
-  )
-
-longmontHoods_join <- st_join(boulderSubcomms_join, zillowHoods) %>%
-  mutate(
-    zillowHood = if_else(is.na(Name), "None", as.character(Name)),
-    subcommunity = if_else(city == "Longmont", as.character(zillowHood), as.character(subcommunity))
-  )
-
-subcommData <- longmontHoods_join %>%
-  dplyr::select(-SUBCOMMUNITY, -Name, -zillowHood)
-
 # new data frame
-finalData <- subcommData
+finalData <- tractData
 
-# --- GENERATE PREDICTIONS ---
+# ADD ELEVATION DATA
 
-regData <- finalData
+elevationPoints <- get_elev_point(locations = finalData, prj = boulderCRS, src = "epqs")
 
-homes.training <- filter(regData, toPredict == 0)
-homes.test <- filter(regData, toPredict == 1)
+elevationData <- elevationPoints %>%
+  dplyr::select(-elev_units)
 
-# estimate model on training set
-reg.training <- lm(logPrice ~ .,
-                   data = st_drop_geometry(regData) %>%
-                     dplyr::select(-toPredict, -MUSA_ID, -price),
-                   na.action = na.exclude
-)
-
-summary(reg.training)
-
-# predict home prices
-homes.test <- homes.test %>%
-  mutate(
-    logPrice.Predict = predict(reg.training, homes.test),
-    price = exp(logPrice.Predict)
-  )
-
-# select submission columns
-submission <- homes.test %>%
-  dplyr::select(MUSA_ID, price) %>%
-  st_drop_geometry()
-
-# export to csv
-write.csv(submission,"89ers.csv", row.names = TRUE)
-
+ggplot(elevationData, aes(elevation, price)) +
+  geom_point(size = 0.5) +
+  geom_smooth(method = "lm", color = "#FA7800") +
+  labs(title = "Price by elevation in meters")
