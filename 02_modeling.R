@@ -28,12 +28,12 @@ options(scipen = 999)
 # --- EXPLORATORY ANALYSIS ---
 
 # set data set to explore
-expData <- bestSoFar # UPDATE WHEN CHECKING NEW DATA 
+expData <- finalData # UPDATE WHEN CHECKING NEW DATA 
 
 # plot correlation of individual variables with home values
 # TODO: Try with different variables
 st_drop_geometry(expData) %>% 
-  dplyr::select(logPrice, age, effectiveAge, effectiveAge2) %>% # REPLACE WITH VARIABLES TO CHECK
+  dplyr::select(price, qualityNum) %>% # REPLACE WITH VARIABLES TO CHECK
   pivot_longer(cols = !price, names_to = "Variable", values_to = "Value") %>%
   ggplot(aes(Value, price)) +
     geom_point(size = 0.5) +
@@ -42,7 +42,7 @@ st_drop_geometry(expData) %>%
     labs(title = "Price as a function of continuous variables")
 
 # select numeric variables for correlation matrix
-numericVars <- select_if(st_drop_geometry(eraRecode), is.numeric) %>%
+numericVars <- select_if(st_drop_geometry(expData), is.numeric) %>%
   dplyr::select(
     # omit for more legible chart
     -toPredict,
@@ -68,9 +68,11 @@ ggcorrplot(
   show.diag = TRUE,
   colors = c("#25cb10", "#ffffff", "#fa7800"),
   type = "lower",
-  insig = "blank"
+  insig = "blank",
+  lab = TRUE
 ) +
   labs(title = "Correlation across numeric variables")
+
 
 # select non-numeric variables to convert to dummies
 nonNumericVars <- select_if(st_drop_geometry(expData), Negate(is.numeric))
@@ -117,11 +119,11 @@ summary(expDataReg)
 
 # --- MODEL ESTIMATION & VALIDATION ---
 
-regData <- finalData %>% filter(toPredict == 0) # UPDATE WHEN RUNNING NEW MODEL
+regData <- finalData %>% filter(toPredict == 0, MUSA_ID != 1397) # UPDATE WHEN RUNNING NEW MODEL
 
-regData <- dplyr::select(regData, -year, -year_quarter)
+# regData <- dplyr::select(regData, -city, -subcommunity)
 
-# TODO: Split data into training (75%) and validation (25%) sets
+# Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
   y = paste(
     regData$constMat, 
@@ -130,18 +132,15 @@ inTrain <- createDataPartition(
     regData$heatingType, 
     regData$extWall, 
     regData$extWall2, 
-    regData$roofType
-    # regData$neighborhood,
-    # regData$countyZone
-    # regData$tractID
-    # regData$zillowHood
+    regData$roofType,
+    regData$tractID
   ),
   p = 0.75, list = FALSE)
 
 homes.training <- regData[inTrain,]
 homes.test <- regData[-inTrain,]
 
-# TODO: Estimate model on training set
+# Estimate model on training set
 reg.training <- lm(logPrice ~ .,
                    data = st_drop_geometry(regData) %>%
                      dplyr::select(-toPredict, -MUSA_ID, -price)
@@ -149,7 +148,7 @@ reg.training <- lm(logPrice ~ .,
                      
 summary(reg.training)
 
-# TODO: Calculate MAE and MAPE
+# Calculate MAE and MAPE
 homes.test <- homes.test %>%
   mutate(
     logPrice.Predict = predict(reg.training, homes.test),
@@ -190,5 +189,6 @@ reg.cv
 allMAE <- reg.cv$resample[,3]
 hist(allMAE, breaks = 50)
 max(allMAE)
+sd(allMAE)
 
 # TODO: Test generalizability across contexts (e.g. race, income)

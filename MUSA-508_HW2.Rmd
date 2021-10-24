@@ -1,15 +1,15 @@
 ---
 title: "MUSA 508, Hedonic Home Price Prediction"
 author: "Ericson, E. & León, A."
-output: html_document
-  code_folding: hide
+output: 
+  html_document:
+    code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo= F, warning=F, error=F, message=F)
+knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F)
 
-# Libraries
-
+# load libraries
 library(tidyverse)
 library(tidycensus)
 library(sf)
@@ -26,14 +26,16 @@ library(jtools)     # for regression model plots
 library(ggstance) # to support jtools plots
 library(mapview)
 
-# Functions
+# load book functions
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
-# Working setup
-# set API key
+# set Census API key
 census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
 
+# block scientific notation
 options(scipen = 999)
+
+# set shortcuts
 g <- glimpse
 m <- mapview
 palette5 <- c("#f0f9e8","#bae4bc","#7bccc4","#139ed1","#0868ac")
@@ -54,39 +56,59 @@ palette5 <- c("#f0f9e8","#bae4bc","#7bccc4","#139ed1","#0868ac")
 
 
 
-```{r data A: homes, echo= F, warning=F, error=F, message=F}
+```{r data A: homes}
 
 # --- DATA WRANGLING ---
 
 # A. HOME VALUE DATA
 
-# set actual CRS for Bouilder Colorado
-boulderCRS <- 'ESRI:102254'
+# set Boulder CRS
+boulderCRS <- "ESRI:102253" # NAD 1983 HARN StatePlane Colorado North FIPS 0501
 
 # read in home value data
 data <- st_read("studentData.geojson") %>%
-  st_set_crs('ESRI:102254') %>%
-  st_transform(boulderCRS)
-# ESRI:102254 /// EPSG 4152 in meters
+  st_set_crs("ESRI:102254") %>%
+  st_transform(boulderCRS) %>%
+  filter(toPredict == 0)
 
+# A1. Clean and recode home data
 
-# A1. Subset primary data for prediction
-
-subdata <- data %>%
-  dplyr::select(MUSA_ID, geometry)
-
-
-house <- data %>%
+# recode missing data and engineered features
+homeRecodes <- data %>%
   mutate(
     # calculate log of price to normalize positive skew
     logPrice = log(price),
-    # Rooms
-    nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths)/2,
-    totalBaths = nbrFullBaths + nbrThreeQtrBaths + (0.5 * nbrHalfBaths),
-    btrRatio = totalBaths/nbrRooms,
-    houseSize = nbrRooms*TotalFinishedSF,
-    quarterSold = str_sub(year_quarter, -1, -1),
-    # Quality recoded as numeric variable
+    # recode missing construction material values
+    constMat = case_when(
+      ConstCode == 0 ~ "Missing",
+      ConstCode == 300 ~ "Unspecified",
+      ConstCode > 300 ~ as.character(ConstCodeDscr)
+    ),
+    # recode missing basement values
+    basement = if_else(bsmtType == 0, "None", as.character(bsmtTypeDscr)),
+    # recode missing car storage values
+    carStorage = if_else(carStorageType == 0, "None", as.character(carStorageTypeDscr)),
+    # recode missing a/c values
+    acType = case_when(
+      is.na(Ac) ~ "None",
+      Ac == 200 ~ "Unspecified", # Code with no description
+      Ac >= 210 ~ as.character(AcDscr) # "Attic Fan", "Evaporative Cooler", "Whole House" unchanged
+    ),
+    # recode missing heating values
+    heatingType = case_when(
+      is.na(Heating) ~ "None",
+      Heating == 800 ~ "Unspecified",
+      Heating > 800 ~ as.character(HeatingDscr)
+    ),
+    # recode missing primary exterior wall values
+    extWall = if_else(ExtWallPrim == 0, "Missing", as.character(ExtWallDscrPrim)),
+    # recode missing secondary exterior wall values
+    extWall2 = if_else(is.na(ExtWallSec), "None", as.character(ExtWallDscrSec)),
+    # recode missing interior wall values
+    intWall = if_else(is.na(IntWall), "Missing", as.character(IntWallDscr)),
+    # recode missing roof cover values
+    roofType = if_else(is.na(Roof_Cover), "Missing", as.character(Roof_CoverDscr)),
+    # recode quality as numeric variable
     qualityNum = case_when(
       qualityCode == 10 ~ 1, # QualityCodeDscr == "LOW "
       qualityCode == 20 ~ 2, # "FAIR "
@@ -112,10 +134,11 @@ house <- data %>%
       ConstCode > 300 ~ as.character(ConstCodeDscr)
     ),
     # recode missing primary exterior wall values
-    extWall = if_else(ExtWallPrim == 0, "Missing", as.character(ExtWallDscrPrim)),
-    # calculate age and effective age (time since last major renovation)
-    age = year - builtYear,
-    effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
+    extWall = if_else(
+      is.na(ExtWallPrim) | ExtWallPrim == 0, "Missing", 
+      as.character(ExtWallDscrPrim)
+      ),
+    # recode builtYear as builtEra
     builtEra = case_when(
       builtYear < 1910 ~ "Pre-1910",
       between(builtYear, 1910, 1919) ~ "1910s",
@@ -129,12 +152,23 @@ house <- data %>%
       between(builtYear, 1990, 1999) ~ "1990s",
       between(builtYear, 2000, 2009) ~ "2000s",
       between(builtYear, 2010, 2019) ~ "2010s",
-      builtYear >= 2020 ~ "2020s"),
-    # try simpler basement categories
-    basementDummy = if_else(bsmtType == 0, 0, 1),
-    garageDummy = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0)
+      builtYear >= 2020 ~ "2020s"
+    ),
+    # recode section_num as manySections
+    manySections = if_else(section_num > 1, 1, 0),
+    # calculate total rooms, including baths
+    nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths/2),
+    # separate quarter sold from year sold
+    quarterSold = str_sub(year_quarter, -1, -1)
+    # calculate age and effective age (time since last major renovation)
+    # age = year - builtYear,
+    # effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
+    # try simpler basement and garage categories
+    # basementDummy = if_else(bsmtType == 0, 0, 1),
+    # garageDummy = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0)
   )
-
+  
+# TODO: take these out? they don't seem to be used anywhere else
 varsAnum <- 
   c('price',
   'logPrice',
@@ -158,43 +192,67 @@ varsAcat <-
   'constMat',
   'extWall')
 
-# trim to a single House subset to use
-houseData <- house %>%
-  # drop unnecessary columns and columns with too much missing data
-  dplyr::select('price',
-                'logPrice',
-                'MUSA_ID',
-                'toPredict',
-                'geometry',
-                'houseSize',
-                'TotalFinishedSF',
-                'nbrRooms',
-                'totalBaths',
-                'quarterSold',
-                'btrRatio',
-                'qualityNum',
-                'age',
-                'effectiveAge',
-                'builtEra',
-                'designCodeDscr',
-                'basementDummy',
-                'garageDummy',
-                'constMat',
-                'extWall')
+# create clean data frame for modeling
+homeData <- homeRecodes %>%
+  # drop extreme outliers identified as data entry errors
+  filter(!MUSA_ID %in% c(8735,1397,5258)) %>%
+  # drop unneeded columns
+  dplyr::select(
+    # same for all
+    -bldgClass,
+    -bldgClassDscr,
+    -status_cd,
+    # not needed
+    -saleDate,
+    -address,
+    # too much missing data
+    -Stories,
+    -UnitCount,
+    # cleaned
+    -designCode,
+    -qualityCode,
+    -ConstCode,
+    -ConstCodeDscr,
+    -bsmtType,
+    -bsmtTypeDscr,
+    -carStorageType,
+    -carStorageTypeDscr,
+    -Ac,
+    -AcDscr,
+    -Heating,
+    -HeatingDscr,
+    -ExtWallPrim,
+    -ExtWallDscrPrim,
+    -ExtWallSec,
+    -ExtWallDscrSec,
+    -IntWall,
+    -IntWallDscr,
+    -Roof_Cover,
+    -Roof_CoverDscr,
+    # recoded
+    -qualityCodeDscr,
+    -builtYear
+  )
+
+# isolate home IDs to use in spatial joins
+homeIDs <- data %>%
+  dplyr::select(MUSA_ID, geometry)
 
 ```
 
 
 
-```{r data B: boundaries, echo= F, warning=F, error=F, message=F}
+```{r data B: boundaries}
 
 # B. BOUNDARY DATA (Neighborhoods, school districts, city, etc.)
 
 # B1. Boulder county boundaries
 
-countylimits <- st_read('County_Boundary.geojson') %>%
+# TODO: delete if we don't actually use
+countyLimits <- st_read('County_Boundary.geojson') %>%
   select(OBJECTID, geometry)
 
+# TODO: delete if we don't actually use
 munis <- st_read('Municipalities.geojson') %>%
   select(ZONEDESC, geometry)
 # CRS: EPSG: 4326, WGS84, metres
@@ -251,7 +309,7 @@ cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
 neighborhoods <- rbind(zones, cityHoods) %>%
   rename(community = SUBCOMMUNITY)
 
-neighborhoodData <- st_join(subdata, neighborhoods) %>%
+neighborhoodData <- st_join(homeIDs, neighborhoods) %>%
   distinct(.,MUSA_ID, .keep_all = TRUE) %>%
   st_drop_geometry() 
 
@@ -259,7 +317,7 @@ neighborhoodData <- st_join(subdata, neighborhoods) %>%
 
 
 
-```{r data C: Census, echo= F, warning=F, error=F, message=F}
+```{r data C: Census}
 
 # C. CENSUS DATA
 
@@ -268,52 +326,40 @@ state <- 08
 county <- 13
 
 # review available variables
-acsVariableList <- load_variables(year,"acs5",cache = TRUE)
+acsVariableList <- load_variables(year,"acs5", cache = TRUE)
 
 # define variables to import
-varsC <- c('B25003_001E', # Total housing units
-           'B25003_002E', # Total owner-occupied
-           'B25003A_001E', # Total white households
-           'B25002_001E', # Total housing units
-           'B25002_003E', # Total vacant housing units
-           'B17026_001E', # Ratio of income to poverty Total
-           'B17026_002E', # Ratio of income to poverty under 0.50
-           'B17026_003E', # Ratio of income to poverty .50 to .74
-           'B17026_004E', # Ratio of income to poverty .75 to .99
-           'B17026_005E', # Ratio of income to poverty 1.00 to 1.24
-           'B17026_006E', # Ratio of income to poverty 1.25 to 1.49
-           'B17026_007E', # Ratio of income to poverty 1.50 to 1.74
-           'B17026_008E', # Ratio of income to poverty 1.75 to 1.84
-           'B17026_009E', # Ratio of income to poverty 1.85 to 1.99
-           'B17026_010E', # Ratio of income to poverty 2.00 to 2.99
-           'B17026_011E', # Ratio of income to poverty 3.00 to 3.99
-           'B17026_012E', # Ratio of income to poverty 4.00 to 4.99
-           'B17026_013E', # Ratio of income to poverty 5.00 and more
-           'B15003_001E', # Total education
-           'B15003_022E', # Bachelor's degree
-           'B15003_023E', # Master's degree
-           'B15003_024E', # Professional school degree
-           'B15003_025E', # Doctorate degree
-           'B19001_001E', # Median income - Total
-           'B19001_002E', # Median income - Less than 10
-           'B19001_003E', # Median income - 10-15
-           'B19001_004E', # Median income 15-20
-           'B19001_005E', # Median income 20-25
-           'B19001_006E', # Median income 25-30
-           'B19001_007E', # Median income 30-35
-           'B19001_008E', # Median income 35-40
-           'B19001_009E', # Median income 40-45
-           'B19001_010E', # Median income 45-50
-           'B19001_011E', # Median income 50-60
-           'B19001_012E', # Median income 60-75
-           'B19001_013E', # Median income 75-100
-           'B19001_014E', # Median income 100-125
-           'B19001_015E', # Median income 125-150
-           'B19001_016E', # Median income 150-200
-           'B19001_017E') # Median income 200 or more
+varsC <- c("B02001_001E", # race: total
+           "B02001_002E", # race: white alone
+           'B25003_001E', # tenure: occupied housing units
+           'B25003_002E', # tenure: owner-occupied
+           'B25002_001E', # occupancy: total housing units
+           'B25002_003E', # occupancy: vacant housing units
+           'B15003_001E', # educational attainment: total
+           'B15003_022E', # educational attainment: bachelor's degree
+           'B15003_023E', # educational attainment: master's degree
+           'B15003_024E', # educational attainment: professional degree
+           'B15003_025E', # educational attainment: doctorate degree
+           'B19001_001E', # household income: total
+           'B19001_002E', # household income: less than $10k
+           'B19001_003E', # household income: $10-15k
+           'B19001_004E', # household income: $15-20k
+           'B19001_005E', # household income: $20-25k
+           'B19001_006E', # household income: $25-30k
+           'B19001_007E', # household income: $30-35k
+           'B19001_008E', # household income: $35-40k
+           'B19001_009E', # household income: $40-45k
+           'B19001_010E', # household income: $45-50k
+           'B19001_011E', # household income: $50-60k
+           'B19001_012E', # household income: $60-75k
+           'B19001_013E', # household income: $75-100k
+           'B19001_014E', # household income: $100-125k
+           'B19001_015E', # household income: $125-150k
+           'B19001_016E', # household income: $150-200k
+           'B19001_017E') # household income: $200 or more
 
 # import variables from ACS 2019 5-year
-blocks <- 
+blockGroups <- 
   get_acs(geography = "block group",
           variables = varsC,
           year = year,
@@ -322,70 +368,80 @@ blocks <-
           geometry = T,
           output = 'wide') %>%
   dplyr::select(-ends_with('M')) %>%
-  rename(HHtotal = B25003_001E,
-         HUtotal = B25002_001E,
-         HHownerOc = B25003_002E,
-         HHwhite = B25003A_001E, # Total white households
-         HHvacant = B25002_003E, # Total vacant housing units
-         EduTotal = B15003_001E, # Total education
-         EduBachs = B15003_022E, # Bachelor's degree
-         EduMasts = B15003_023E, # Master's degree
-         EduProfs = B15003_024E, # Professional school degree
-         EduDocts = B15003_025E, # Doctorate degree
-         HHMedInc = B19001_001E, # Median income - Total
-         HHMedInc000 = B19001_002E, # Median income - Less than 10
-         HHMedInc010 = B19001_003E, # Median income - 10-15
-         HHMedInc015 = B19001_004E, # Median income 15-20
-         HHMedInc020 = B19001_005E, # Median income 20-25
-         HHMedInc025 = B19001_006E, # Median income 25-30
-         HHMedInc030 = B19001_007E, # Median income 30-35
-         HHMedInc035 = B19001_008E, # Median income 35-40
-         HHMedInc040 = B19001_009E, # Median income 40-45
-         HHMedInc045 = B19001_010E, # Median income 45-50
-         HHMedInc050 = B19001_011E, # Median income 50-60
-         HHMedInc060 = B19001_012E, # Median income 60-75
-         HHMedInc075 = B19001_013E, # Median income 75-100
-         HHMedInc100 = B19001_014E, # Median income 100-125
-         HHMedInc125 = B19001_015E, # Median income 125-150
-         HHMedInc150 = B19001_016E, # Median income 150-200
-         HHMedInc200 = B19001_017E # Median income 200 or more 
+  rename(# white population
+         raceTotal = B02001_001E, # race: total
+         whiteAlone = B02001_002E, # race: white alone
+         # vacant housing units
+         totalUnits = B25002_001E, # occupancy status: total
+         vacantUnits = B25002_003E, # occupancy status: vacant
+         # homeowners
+         occupiedUnits = B25003_001E, # tenure: total
+         ownerOccupied = B25003_002E, # tenure: owner-occupied
+         # highest educational attainment
+         eduTotal = B15003_001E, # educational attainment: total
+         eduBachs = B15003_022E, # educational attainment: bachelor's degree
+         eduMasts = B15003_023E, # educational attainment: master's degree
+         eduProfs = B15003_024E, # educational attainment: professional degree
+         eduDocts = B15003_025E, # educational attainment: doctorate degree
+         # household income
+         incomeTotal = B19001_001E, # household income: total
+         income000 = B19001_002E, # household income: less than $10k
+         income010 = B19001_003E, # household income: $10-15k
+         income015 = B19001_004E, # household income: $15-20k
+         income020 = B19001_005E, # household income: $20-25k
+         income025 = B19001_006E, # household income: $25-30k
+         income030 = B19001_007E, # household income: $30-35k
+         income035 = B19001_008E, # household income: $35-40k
+         income040 = B19001_009E, # household income: $40-45k
+         income045 = B19001_010E, # household income: $45-50k
+         income050 = B19001_011E, # household income: $50-60k
+         income060 = B19001_012E, # household income: $60-75k
+         income075 = B19001_013E, # household income: $75-100k
+         income100 = B19001_014E, # household income: $100-125k
+         income125 = B19001_015E, # household income: $125-150k
+         income150 = B19001_016E, # household income: $150-200k
+         income200 = B19001_017E # household income: $200k or more
          )%>%
-  mutate(PCTHHowner = HHownerOc/HHtotal,
-         PCTVacant = HHvacant/HUtotal,
-         PCTHHwhite = HHwhite/HHtotal,
-         PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal,
-         PCTHHMI000 = HHMedInc000/HHMedInc,
-         PCTHHMI010 = HHMedInc010/HHMedInc,
-         PCTHHMI015 = HHMedInc015/HHMedInc,
-         PCTHHMI020 = HHMedInc020/HHMedInc,
-         PCTHHMI025 = HHMedInc025/HHMedInc,
-         PCTHHMI030 = HHMedInc030/HHMedInc,
-         PCTHHMI035 = HHMedInc035/HHMedInc,
-         PCTHHMI040 = HHMedInc040/HHMedInc,
-         PCTHHMI045 = HHMedInc045/HHMedInc,
-         PCTHHMI050 = HHMedInc050/HHMedInc,
-         PCTHHMI060 = HHMedInc060/HHMedInc,
-         PCTHHMI075 = HHMedInc075/HHMedInc,
-         PCTHHMI100 = HHMedInc100/HHMedInc,
-         PCTHHMI125 = HHMedInc125/HHMedInc,
-         PCTHHMI150 = HHMedInc150/HHMedInc,
-         PCTHHMI200 = HHMedInc200/HHMedInc) %>%
-  select(-HHtotal, -HUtotal, -HHvacant, -HHownerOc,-HHwhite,
-         -starts_with('Edu'), -starts_with('HHMedInc'), -starts_with('B17026')) %>%
+  mutate(pctWhite = whiteAlone/raceTotal,
+         pctVacant = vacantUnits/totalUnits,
+         pctOwnerOccupied = ownerOccupied/occupiedUnits,
+         # calculate percent with bachelor's or higher
+         # TODO: compare percent postgraduate?
+         pctHigherEdu = if_else(
+           eduTotal > 0, (eduBachs + eduMasts + eduProfs + eduDocts)/eduTotal, 0
+         ),
+         # calculate percent in each income category
+         pctIncome000 = income000/incomeTotal,
+         pctIncome010 = income010/incomeTotal,
+         pctIncome015 = income015/incomeTotal,
+         pctIncome020 = income020/incomeTotal,
+         pctIncome025 = income025/incomeTotal,
+         pctIncome030 = income030/incomeTotal,
+         pctIncome035 = income035/incomeTotal,
+         pctIncome040 = income040/incomeTotal,
+         pctIncome045 = income045/incomeTotal,
+         pctIncome050 = income050/incomeTotal,
+         pctIncome060 = income060/incomeTotal,
+         pctIncome075 = income075/incomeTotal,
+         pctIncome100 = income100/incomeTotal,
+         pctIncome125 = income125/incomeTotal,
+         pctIncome150 = income150/incomeTotal,
+         pctIncome200 = income200/incomeTotal) %>%
+  select(-raceTotal, -occupiedUnits, -totalUnits, -vacantUnits, -ownerOccupied,-whiteAlone,
+         -starts_with('edu'), -starts_with('income')) %>%
   rename(block = GEOID) %>%
   st_transform(boulderCRS)
 
-boulderBlocks <- blocks %>%
+blockGroupBoundaries <- blockGroups %>%
   select(block, geometry)
 
-censusData <- st_join(subdata, boulder) %>%
+censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
   st_drop_geometry() %>%
-  left_join(., blocks, by='block') %>%
+  left_join(., blockGroups, by='block') %>%
   select(-NAME, -geometry)
 
-# Get the Tracts for defining the neighborhoods
-
-boulderTracts <- 
+# import tract boundaries as proxy for neighborhoods
+tracts <- 
   get_acs(geography = "tract",
           variables = 'B25003_001E',
           year = year,
@@ -397,13 +453,13 @@ boulderTracts <-
   rename(tract = GEOID) %>%
   st_transform(boulderCRS)
 
-tractsData <- st_join(subdata, boulderTracts)%>%
+tractsData <- st_join(homeIDs, tracts) %>%
   st_drop_geometry()
 
 ```
 
 
-```{r data D: other data, echo= F, warning=F, error=F, message=F}
+```{r data D: other data}
 
 # D. OTHER DATA (CRIME, FEMA, etc.)
 
@@ -419,7 +475,7 @@ wildfires <-
   st_sf() %>%
   mutate(wildfireHazard = 1)
 
-wildfireData <- st_join(subdata, wildfires) %>%
+wildfireData <- st_join(homeIDs, wildfires) %>%
   st_drop_geometry() %>%
   mutate(wildfireHazard = replace_na(wildfireHazard, 0))
 
@@ -439,7 +495,7 @@ floodplains <-
   summarize(geometry = st_union(geometry))%>%
   rename(floodRisk = FLD_ZONE)
 
-floodData <- st_join(subdata, floodplains) %>%
+floodData <- st_join(homeIDs, floodplains) %>%
   st_drop_geometry() %>%
   mutate(floodRisk = replace_na(floodRisk, 0))
 
@@ -447,23 +503,23 @@ floodData <- st_join(subdata, floodplains) %>%
 
 
 
-```{r data E: experimental, echo= F, warning=F, error=F, message=F}
+```{r data E: experimental}
 
 # E1. Whole Foods locations
 
-wholefoodsLocations <- st_read("wholefoodsmarkets_boulderCO.csv")
+wholeFoodsLocations <- st_read("wholefoodsmarkets_boulderCO.csv")
 
-wholefoods <- st_as_sf(wholefoodsLocations, coords = c("lon", "lat"), crs = 4326) %>% #4326
+wholeFoods <- st_as_sf(wholeFoodsLocations, coords = c("lon", "lat"), crs = 4326) %>% #4326
   dplyr::select(-phone, -address) %>%
   st_buffer(4023) %>%
   st_union() %>%
   st_sf() %>%
   st_transform(boulderCRS)
 
-wholefoodsBuffer <- st_join(subdata, wholefoods, left = FALSE) 
+wholeFoodsBuffer <- st_join(homeIDs, wholeFoods, left = FALSE) 
 
-wholefoodsData <- subdata %>%
-  mutate(wholeFoods = ifelse(MUSA_ID %in% wholefoodsBuffer$MUSA_ID, 1, 0))  %>%
+wholeFoodsData <- homeIDs %>%
+  mutate(wholeFoods = ifelse(MUSA_ID %in% wholeFoodsBuffer$MUSA_ID, 1, 0))  %>%
   st_drop_geometry()
 
 
@@ -476,9 +532,9 @@ marijuana <- st_read("Marijuana_Establishments.geojson") %>%
   st_sf() %>%
   st_transform(boulderCRS)
 
-marijuanaBuffer <- st_join(subdata, marijuana, left = FALSE) 
+marijuanaBuffer <- st_join(homeIDs, marijuana, left = FALSE) 
 
-marijuanaData <- subdata %>%
+marijuanaData <- homeIDs %>%
   mutate(marijuana = ifelse(MUSA_ID %in% marijuanaBuffer$MUSA_ID, 1, 0)) %>%
   st_drop_geometry()
 
@@ -487,16 +543,16 @@ marijuanaData <- subdata %>%
 
 
 
-```{r data F: finished dataset}
+```{r data F: combined data}
 
-# F. Finish and export dataset EXPORT
+# F. Combine data sets
 
-export <-
-  left_join(houseData, neighborhoodData, by = 'MUSA_ID') %>%
+joinedData <-
+  left_join(homeData, neighborhoodData, by = 'MUSA_ID') %>%
   left_join(., censusData, by = 'MUSA_ID') %>%
   left_join(., wildfireData, by = 'MUSA_ID') %>%
   left_join(., floodData, by = 'MUSA_ID') %>%
-  left_join(., wholefoodsData, by = 'MUSA_ID') %>%
+  left_join(., wholeFoodsData, by = 'MUSA_ID') %>%
   left_join(., marijuanaData, by = 'MUSA_ID') %>%
   left_join(., tractsData, by = 'MUSA_ID')
 
@@ -508,7 +564,7 @@ export <-
 # 2. Exploratory Analysis
 
 
-```{r EDA: Initial analysis, echo= F, warning=F, error=F, message=F}
+```{r EDA: Initial analysis}
 
 # 2. EXPLORATORY ANALYSIS
 
@@ -519,14 +575,14 @@ idx <- 2
 
 geounit <- c('community', 'tract')
 
-dataset <- export %>%
+finalData <- joinedData %>%
   rename(neighborhood = geounit[idx]) %>%  # geometry to be used
   select(-geounit[-idx])                   # geometry not to be used
 
 ```
 
 
-```{r EDA: Correlations, echo= F, warning=F, error=F, message=F}
+```{r EDA: Correlations}
 
 # plot correlation of individual variables with home values
 
@@ -534,7 +590,6 @@ varsX <- c(
   'houseSize',
   'TotalFinishedSF',
   'nbrRooms',       # KEEP fn, choose between house size or this
-  'btrRatio',       # KEEP fn
   'qualityNum',     # KEEP
   'effectiveAge',   # KEEP
   'builtEra',       # KEEP
@@ -545,8 +600,8 @@ varsX <- c(
   'extWall'         # KEEP Good but may be colinear with constMat
   )
 
-st_drop_geometry(dataset) %>%
-  dplyr::select(logPrice, btrRatio) %>%
+st_drop_geometry(finalData) %>%
+  dplyr::select(logPrice, TotalFinishedSF) %>%
   pivot_longer(cols = !logPrice, names_to = "Variable", values_to = "Value") %>%
   ggplot(aes(Value, logPrice)) +
     geom_point(size = 0.5) +
@@ -554,8 +609,7 @@ st_drop_geometry(dataset) %>%
     facet_wrap(~Variable, ncol = 4, scales = "free") +
     labs(title = "Price as a function of continuous variables")
 
-
-st_drop_geometry(dataset) %>% 
+st_drop_geometry(finalData) %>% 
   dplyr::select(logPrice, quarterSold) %>%
   mutate(quarterSold = as.factor(quarterSold)) %>%
   filter(logPrice <= 1000000) %>%
@@ -566,19 +620,16 @@ st_drop_geometry(dataset) %>%
   labs(title = "Price as a function of\ncategorical variables", y = "Mean_Price") +
   plotTheme() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-
 # select numeric variables for correlation matrix
-numericVars <- select_if(st_drop_geometry(dataset), is.numeric) %>%
+numericVars <- select_if(st_drop_geometry(finalData), is.numeric) %>%
   dplyr::select(
     # omit for more legible chart
     -toPredict,
-    -MUSA_ID)
-
-numericVarsMx <- numericVars %>%
+    -MUSA_ID) %>%
   na.omit()
 
 # create numeric variable correlation matrix and convert to data frame
-corMatrix <- cor(numericVarsMx)
+corMatrix <- cor(numericVars)
 corDF <- as.data.frame(as.table(corMatrix)) %>%
   rename(Cor = Freq)
 
@@ -590,31 +641,42 @@ corFinishedSF <- filter(corDF, Var1 == "TotalFinishedSF")
 
 # generate correlation matrix chart for numeric variables
 ggcorrplot(
-  round(cor(numericVarsMx), 1),
-  p.mat = cor_pmat(numericVarsMx),
-  show.diag = TRUE,
-  colors = c("#25cb10", "#ffffff", "#fa7800"),
-  type = "lower",
-  insig = "blank",
-  lab =T
+   round(cor(numericVars), 1),
+   p.mat = cor_pmat(numericVars),
+   show.diag = TRUE,
+   colors = c("#25cb10", "#ffffff", "#fa7800"),
+   type = "lower",
+   insig = "blank",
+   lab =T
 ) +
-  labs(title = "Correlation across numeric variables")
+   labs(title = "Correlation across numeric variables")
+
+ggcorrplot(
+   round(cor(numericVars), 1),
+   p.mat = cor_pmat(numericVars),
+   show.diag = TRUE,
+   colors = c("#25cb10", "#ffffff", "#fa7800"),
+   type = "lower",
+   insig = "blank"
+) +
+   labs(title = "Correlation across numeric variables")
 
 
 # select non-numeric variables to convert to dummies
-nonNumericVars <- select_if(st_drop_geometry(dataset), Negate(is.numeric))
+nonNumericVars <- select_if(st_drop_geometry(finalData), Negate(is.numeric)) %>%
+  na.omit()
 
 # convert categorical variables to dummies
 dummyVars <- dummy.data.frame(nonNumericVars)
 
 # add log(price) column to dummies
-dummiesWithLogPrice <- cbind(dataset$logPrice, dummyVars)
+dummiesWithLogPrice <- cbind(finalData$logPrice, dummyVars)
 
 # create dummy variable correlation matrix as data frame
 dummyCorDF <- as.data.frame(as.table(cor(dummiesWithLogPrice)))
 
 # review dummy variables most correlated with price
-dummyCorLogPrice <- filter(dummyCorDF, Var1 == "dataset$logPrice")%>%
+dummyCorLogPrice <- filter(dummyCorDF, Var1 == "finalData$logPrice")%>%
   rename(Cor = Freq)
 
 hoodDummyVars <- dummyVars %>%
@@ -627,28 +689,28 @@ allVars <- cbind(numericVars, dummyVars)
 
 
 # generate correlation matrix chart for dummy variables
-ggcorrplot(
-  round(cor(dummyVars), 1),
-  p.mat = cor_pmat(dummyVars),
-  show.diag = TRUE,
-  colors = c("#25cb10", "#ffffff", "#fa7800"),
-  type = "lower",
-  insig = "blank"
-) +
-  labs(title = "Correlation across categorical dummy variables")
-
-
-
-# This GG plot is not working
-ggcorrplot(
-  round(cor(allVars), 1),
-  p.mat = cor_pmat(allVars),
-  show.diag = TRUE,
-  colors = c("#25cb10", "#ffffff", "#fa7800"),
-  type = "lower",
-  insig = "blank"
-) +
-  labs(title = "Correlation across all variables")
+# ggcorrplot(
+#   round(cor(dummyVars), 1),
+#   p.mat = cor_pmat(dummyVars),
+#   show.diag = TRUE,
+#   colors = c("#25cb10", "#ffffff", "#fa7800"),
+#   type = "lower",
+#   insig = "blank"
+# ) +
+#   labs(title = "Correlation across categorical dummy variables")
+# 
+# 
+# 
+# # This GG plot is not working
+# ggcorrplot(
+#   round(cor(allVars), 1),
+#   p.mat = cor_pmat(allVars),
+#   show.diag = TRUE,
+#   colors = c("#25cb10", "#ffffff", "#fa7800"),
+#   type = "lower",
+#   insig = "blank"
+# ) +
+#   labs(title = "Correlation across all variables")
 
 
 ```
@@ -656,64 +718,61 @@ ggcorrplot(
 
 3. OLS Regression
 
-```{r OLS regression, echo= F, warning=F, error=F, message=F}
+```{r OLS regression}
 
 # 3. LINEAR  and variable exclusion
 
-datasetReg <- lm(logPrice ~ .,
-                 data = st_drop_geometry(dataset) %>%
+finalDataReg <- lm(logPrice ~ .,
+                 data = st_drop_geometry(finalData) %>%
                    dplyr::select(-price, -MUSA_ID, -toPredict))
-summary(datasetReg)
+summary(finalDataReg)
 
 ```
 
 
 4. Modeling
 
-```{r Modeling, echo= F, warning=F, error=F, message=F}
+```{r Modeling}
 
 # 4. MODEL ESTIMATION & VALIDATION
 
-# Filter out outliers and apparent computing errors
-dataset <- dataset %>% filter(!MUSA_ID %in% c(8735,1397,5258))
-
 # model 2
-d2n <- dataset %>%
+d2n <- finalData %>%
   dplyr::select(MUSA_ID,
                 price,
                 logPrice,
                 nbrRooms,
                 qualityNum,
                 builtEra,
-                basementDummy,
-                garageDummy,
+                # basementDummy,
+                # garageDummy,
                 designCodeDscr,
                 extWall,
                 starts_with('neigh'),
-                starts_with('PCTHHMI'),
-                PCTVacant,
-                PCT25yrHighEdu,
+                starts_with('pctIncome'),
+                pctVacant,
+                pctHigherEdu,
                 floodRisk,
                 wholeFoods,
                 toPredict,
                 geometry)
 
 # model 3
-d3n <- dataset %>%
+d3n <- finalData %>%
   dplyr::select(MUSA_ID,
                 price,
                 logPrice,
                 nbrRooms,
                 qualityNum,
                 builtEra,
-                basementDummy,
-                garageDummy,
+                # basementDummy,
+                # garageDummy,
                 designCodeDscr,
                 extWall,
                 starts_with('neigh'),
-                starts_with('PCTHHMI'),
-                PCTVacant,
-                PCT25yrHighEdu,
+                starts_with('pctIncome'),
+                pctVacant,
+                pctHigherEdu,
                 floodRisk,
                 wholeFoods,
                 toPredict,
@@ -731,14 +790,13 @@ summary(RegA)
 
 
 
-```{r Model training, echo= F, warning=F, error=F, message=F}
+```{r Model training}
 
 # PLUG IN MODEL
 regData <- d3n # Update with tested model
 
 # Remove the toPredict homes
-regData <- regData %>%
-  filter(toPredict != 1) 
+regData <- regData
 
 # Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
@@ -786,7 +844,7 @@ hist(homes.test$price.APE, breaks = 50)
 ```
 
 
-```{r k fold cross validation, echo= F, warning=F, error=F, message=F}
+```{r k fold cross validation}
 
 # Perform k-fold cross-validation using caret package
 fitControl <- trainControl(method = "cv", number = 100)
@@ -815,7 +873,7 @@ hist(allMAE, breaks = 50)
 
 5. Spatial Lag [SIMPLIFY TERM]
 
-```{r Spatial lag test, echo= F, warning=F, error=F, message=F}
+```{r Spatial lag test}
 
 # 5. SPATIAL LAG
 
@@ -848,7 +906,7 @@ ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
 ```
 
 
-```{r Spatial lag test summary, echo= F, warning=F, error=F, message=F}
+```{r Spatial lag test summary}
 
 left_join(
   st_drop_geometry(homes.test) %>%
@@ -867,7 +925,7 @@ left_join(
 
 6. Neighborhood effects
 
-```{r Generalizability Spatial, echo= F, warning=F, error=F, message=F}
+```{r Generalizability Spatial}
 
 # 6. NEIGHBORHOOD EFFECTS
 # Calculate a baseline regression without the neighborhoods
@@ -914,7 +972,7 @@ st_drop_geometry(bothRegressions) %>%
 
 
 
-```{r Neighborhood effects, echo= F, warning=F, error=F, message=F}
+```{r Neighborhood effects}
 
 
 bothRegressions %>%
@@ -932,7 +990,7 @@ bothRegressions %>%
 
 
 # set neighborhood geometry
-nhoods <- boulderTracts %>%
+nhoods <- tracts %>%
   rename(neighborhood = geounit[idx])
 
 st_drop_geometry(bothRegressions) %>%
@@ -959,44 +1017,44 @@ st_drop_geometry(bothRegressions) %>%
 
 7. Generalizability [Simplify term, maybe in question form?]
 
-```{r Generalizability Demographic, echo= F, warning=F, error=F, message=F}
+```{r Generalizability Demographic}
 
 # 7. GENERALIZABILITY TEST
 
 # Replace with NEW INCOME DATA
 
-povLine <- tracts %>%
-  select(PCTbel125pov,
-         PCT125185pov,
-         PCT185500pov,
-         PCTabo500pov) %>%
-  mutate(yesWealth= PCTabo500pov,
-         notWealth = PCTbel125pov+PCT125185pov+PCT185500pov,
-         totalPop = notWealth + yesWealth) %>%
-  mutate(percentWealth = yesWealth / totalPop,
-         povContext = ifelse(percentWealth > .5, "Majority Wealthy", "Majority Non-Wealthy"))
-
-
-grid.arrange(ncol = 1,
-  ggplot() + geom_sf(data = na.omit(povLine), aes(fill = povContext)) +
-    scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Income Context") +
-    labs(title = "Income Context") +
-    mapTheme() + theme(legend.position="bottom"))
+# povLine <- tracts %>%
+#   select(PCTbel125pov,
+#          PCT125185pov,
+#          PCT185500pov,
+#          PCTabo500pov) %>%
+#   mutate(yesWealth= PCTabo500pov,
+#          notWealth = PCTbel125pov+PCT125185pov+PCT185500pov,
+#          totalPop = notWealth + yesWealth) %>%
+#   mutate(percentWealth = yesWealth / totalPop,
+#          povContext = ifelse(percentWealth > .5, "Majority Wealthy", "Majority Non-Wealthy"))
+# 
+# 
+# grid.arrange(ncol = 1,
+#   ggplot() + geom_sf(data = na.omit(povLine), aes(fill = povContext)) +
+#     scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Income Context") +
+#     labs(title = "Income Context") +
+#     mapTheme() + theme(legend.position="bottom"))
 
 m(wholeFoods)
 
 ```
 
 
-```{r Generalizabiliy tables, echo= F, warning=F, error=F, message=F}
+```{r Generalizabiliy tables}
 
 
-st_join(bothRegressions, povLine) %>% 
-  group_by(Regression, povContext) %>%
-  summarize(mean.MAPE = scales::percent(mean(price.APE, na.rm = T))) %>%
-  st_drop_geometry() %>%
-  spread(povContext, mean.MAPE) %>%
-  kable(caption = "Test set MAPE by neighborhood racial context")
+# st_join(bothRegressions, povLine) %>% 
+#   group_by(Regression, povContext) %>%
+#   summarize(mean.MAPE = scales::percent(mean(price.APE, na.rm = T))) %>%
+#   st_drop_geometry() %>%
+#   spread(povContext, mean.MAPE) %>%
+#   kable(caption = "Test set MAPE by neighborhood racial context")
 
 
 ```
