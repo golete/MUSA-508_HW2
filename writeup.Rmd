@@ -2,12 +2,30 @@
 title: "Predictive Modeling of Boulder Home Prices"
 author: "Ericson, E. & León, A."
 date: "10/14/2021"
-output: html_document
-code_folding: hide
+output: 
+  html_document: 
+    code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = F, error = F, message = F, results = F)
+
+# load libraries
+# TODO: check if using gridExtra, jtools, ggstance
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(spdep)
+library(caret)
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot)
+library(kableExtra)
+library(jtools)     # for regression model plots
+library(ggstance) # to support jtools plots
+library(mapview)
+library(stargazer)
 ```
 
 # Introduction
@@ -19,6 +37,199 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Data Collection
 
 > Briefly describe your methods for gathering the data.
+
+```{r data}
+
+# set Boulder CRS
+boulderCRS <- "ESRI:102253" # NAD 1983 HARN StatePlane Colorado North FIPS 0501
+
+# --- A. HOME VALUE DATA ---
+
+# read in home value data
+data <- st_read("studentData.geojson") %>%
+  st_set_crs("ESRI:102254") %>%
+  st_transform(boulderCRS) %>%
+  filter(toPredict == 0)
+
+# recode missing data and engineered features
+homeRecodes <- data %>%
+  mutate(
+    # calculate log of price to normalize positive skew
+    logPrice = log(price),
+    # recode missing construction material values
+    constMat = case_when(
+      ConstCode == 0 ~ "Missing",
+      ConstCode == 300 ~ "Unspecified",
+      ConstCode > 300 ~ as.character(ConstCodeDscr)
+    ),
+    # recode missing basement values
+    basement = if_else(bsmtType == 0, "None", as.character(bsmtTypeDscr)),
+    # recode missing car storage values
+    carStorage = if_else(carStorageType == 0, "None", as.character(carStorageTypeDscr)),
+    # recode missing a/c values
+    acType = case_when(
+      is.na(Ac) ~ "None",
+      Ac == 200 ~ "Unspecified", # Code with no description
+      Ac >= 210 ~ as.character(AcDscr) # "Attic Fan", "Evaporative Cooler", "Whole House" unchanged
+    ),
+    # recode missing heating values
+    heatingType = case_when(
+      is.na(Heating) ~ "None",
+      Heating == 800 ~ "Unspecified",
+      Heating > 800 ~ as.character(HeatingDscr)
+    ),
+    # recode missing primary exterior wall values
+    extWall = if_else(ExtWallPrim == 0, "Missing", as.character(ExtWallDscrPrim)),
+    # recode missing secondary exterior wall values
+    extWall2 = if_else(is.na(ExtWallSec), "None", as.character(ExtWallDscrSec)),
+    # recode missing interior wall values
+    intWall = if_else(is.na(IntWall), "Missing", as.character(IntWallDscr)),
+    # recode missing roof cover values
+    roofType = if_else(is.na(Roof_Cover), "Missing", as.character(Roof_CoverDscr)),
+    # recode quality as numeric variable
+    qualityNum = case_when(
+      qualityCode == 10 ~ 1, # QualityCodeDscr == "LOW "
+      qualityCode == 20 ~ 2, # "FAIR "
+      qualityCode == 30 ~ 3, # "AVERAGE "
+      qualityCode == 31 ~ 4, # "AVERAGE + "
+      qualityCode == 32 ~ 5, # "AVERAGE ++ "
+      qualityCode == 40 ~ 6, # "GOOD "
+      qualityCode == 41 ~ 7, # "GOOD + "
+      qualityCode == 42 ~ 8, # "GOOD ++ "
+      qualityCode == 50 ~ 9, # "VERY GOOD "
+      qualityCode == 51 ~ 10, # "VERY GOOD + "
+      qualityCode == 52 ~ 11, # "VERY GOOD ++ "
+      qualityCode == 60 ~ 12, # "EXCELLENT "
+      qualityCode == 61 ~ 13, # "EXCELLENT + "
+      qualityCode == 62 ~ 14, # "EXCELLENT++ "
+      qualityCode == 70 ~ 15, # "EXCEPTIONAL 1 "
+      qualityCode == 80 ~ 16, # "EXCEPTIONAL 2 "
+    ),
+    # recode missing construction material values
+    constMat = case_when(
+      ConstCode == 0 ~ "Missing",
+      ConstCode == 300 ~ "Unspecified",
+      ConstCode > 300 ~ as.character(ConstCodeDscr)
+    ),
+    # recode missing primary exterior wall values
+    extWall = if_else(
+      is.na(ExtWallPrim) | ExtWallPrim == 0, "Missing", 
+      as.character(ExtWallDscrPrim)
+      ),
+    # recode builtYear as builtEra
+    builtEra = case_when(
+      builtYear < 1910 ~ "Pre-1910",
+      between(builtYear, 1910, 1919) ~ "1910s",
+      between(builtYear, 1920, 1929) ~ "1920s",
+      between(builtYear, 1930, 1939) ~ "1930s",
+      between(builtYear, 1940, 1949) ~ "1940s",
+      between(builtYear, 1950, 1959) ~ "1950s",
+      between(builtYear, 1960, 1969) ~ "1960s",
+      between(builtYear, 1970, 1979) ~ "1970s",
+      between(builtYear, 1980, 1989) ~ "1980s",
+      between(builtYear, 1990, 1999) ~ "1990s",
+      between(builtYear, 2000, 2009) ~ "2000s",
+      between(builtYear, 2010, 2019) ~ "2010s",
+      builtYear >= 2020 ~ "2020s"
+    ),
+    # recode section_num as manySections
+    manySections = if_else(section_num > 1, 1, 0),
+    # calculate total rooms, including baths
+    nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths/2),
+    # separate quarter sold from year sold
+    quarterSold = str_sub(year_quarter, -1, -1)
+    # calculate age and effective age (time since last major renovation)
+    # age = year - builtYear,
+    # effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
+    # try simpler basement and garage categories
+    # basementDummy = if_else(bsmtType == 0, 0, 1),
+    # garageDummy = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0)
+  )
+
+
+# create clean data frame for modeling
+homeData <- homeRecodes %>%
+  # drop extreme outliers identified as data entry errors
+  filter(!MUSA_ID %in% c(8735,1397,5258)) %>%
+  # drop unneeded columns
+  dplyr::select(
+    # same for all
+    -bldgClass,
+    -bldgClassDscr,
+    -status_cd,
+    # not needed
+    -saleDate,
+    -address,
+    # too much missing data
+    -Stories,
+    -UnitCount,
+    # cleaned
+    -designCode,
+    -qualityCode,
+    -ConstCode,
+    -ConstCodeDscr,
+    -bsmtType,
+    -bsmtTypeDscr,
+    -carStorageType,
+    -carStorageTypeDscr,
+    -Ac,
+    -AcDscr,
+    -Heating,
+    -HeatingDscr,
+    -ExtWallPrim,
+    -ExtWallDscrPrim,
+    -ExtWallSec,
+    -ExtWallDscrSec,
+    -IntWall,
+    -IntWallDscr,
+    -Roof_Cover,
+    -Roof_CoverDscr,
+    # recoded
+    -qualityCodeDscr,
+    -builtYear
+  )
+
+# isolate home IDs to use in spatial joins
+homeIDs <- data %>%
+  dplyr::select(MUSA_ID, geometry)
+
+# B. OPEN DATA
+
+# TODO: add Census data
+year <- 2019
+state <- 08
+county <- 13
+
+# TODO: add other open data
+
+# C. NEIGHBORHOOD BOUNDARIES
+
+# TODO: add other neighborhood code
+
+# import tract boundaries as proxy for neighborhoods
+# TODO: also import median income here for generalizability test later on?
+tracts <- 
+  get_acs(geography = "tract",
+          variables = 'B25003_001E',
+          year = year,
+          state = state,
+          county = county,
+          geometry = T,
+          output = 'wide') %>%
+  dplyr::select(GEOID, geometry)%>%
+  rename(tract = GEOID) %>%
+  st_transform(boulderCRS)
+
+# isolate tract boundaries to join to home data
+tractsData <- st_join(homeIDs, tracts) %>%
+  st_drop_geometry()
+
+# D. JOIN DATA
+
+# TODO: add open data
+finalData <- left_join(homeData, tractsData)
+
+```
 
 ## Summary Statistics
 
