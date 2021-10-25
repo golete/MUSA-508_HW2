@@ -8,7 +8,9 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(warning = F, error = F, message = F, results = F)
+knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F)
+
+options(knitr.kable.NA = "")
 
 # load libraries
 # TODO: check if using gridExtra, jtools, ggstance
@@ -26,6 +28,33 @@ library(jtools)     # for regression model plots
 library(ggstance) # to support jtools plots
 library(mapview)
 library(stargazer)
+library(vtable)
+
+# set map styling options
+mapTheme <- function() {
+  theme( 
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(face = "italic"),
+    plot.caption = element_text(hjust = 0)
+  )
+}
+
+# set plot styling options
+plotTheme <- function() {
+  theme(
+    axis.ticks = element_blank(),
+#    axis.title = element_blank(),
+    legend.title = element_blank(),
+    panel.background = element_blank(),
+    panel.grid.major = element_line(color = "gray75", size = 0.1),
+    panel.grid.minor = element_line(color = "gray75", size = 0.1),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(face = "italic"),
+    plot.caption = element_text(hjust = 0))
+}
 ```
 
 # Introduction
@@ -38,7 +67,9 @@ library(stargazer)
 
 > Briefly describe your methods for gathering the data.
 
-```{r data}
+### A. Home value data
+
+```{r data: homes}
 
 # set Boulder CRS
 boulderCRS <- "ESRI:102253" # NAD 1983 HARN StatePlane Colorado North FIPS 0501
@@ -49,11 +80,14 @@ boulderCRS <- "ESRI:102253" # NAD 1983 HARN StatePlane Colorado North FIPS 0501
 data <- st_read("studentData.geojson") %>%
   st_set_crs("ESRI:102254") %>%
   st_transform(boulderCRS) %>%
+  # TODO: add this filter where it's relevant
   filter(toPredict == 0)
 
 # recode missing data and engineered features
 homeRecodes <- data %>%
   mutate(
+    # change year to factor from float
+    year = as.factor(year),
     # calculate log of price to normalize positive skew
     logPrice = log(price),
     # recode missing construction material values
@@ -134,6 +168,10 @@ homeRecodes <- data %>%
     ),
     # recode section_num as manySections
     manySections = if_else(section_num > 1, 1, 0),
+    # recode design to remove all caps for table
+    designType = if_else(
+      designCode == "0120", "Multi-Story Townhouse", as.character(designCodeDscr)
+    ),
     # calculate total rooms, including baths
     nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths/2),
     # separate quarter sold from year sold
@@ -145,7 +183,6 @@ homeRecodes <- data %>%
     # basementDummy = if_else(bsmtType == 0, 0, 1),
     # garageDummy = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0)
   )
-
 
 # create clean data frame for modeling
 homeData <- homeRecodes %>%
@@ -160,6 +197,7 @@ homeData <- homeRecodes %>%
     # not needed
     -saleDate,
     -address,
+    -bld_num,
     # too much missing data
     -Stories,
     -UnitCount,
@@ -185,49 +223,191 @@ homeData <- homeRecodes %>%
     -Roof_Cover,
     -Roof_CoverDscr,
     # recoded
+    -section_num,
     -qualityCodeDscr,
-    -builtYear
+    -builtYear,
+    -designCodeDscr
   )
 
 # isolate home IDs to use in spatial joins
 homeIDs <- data %>%
   dplyr::select(MUSA_ID, geometry)
+```
 
-# B. OPEN DATA
+### B. "Neighborhood" boundaries
 
-# TODO: add Census data
+```{r data: neighborhoods}
+# B. NEIGHBORHOOD BOUNDARIES
+
+# B1. Census tracts
+
+# set Census data import parameters
 year <- 2019
 state <- 08
 county <- 13
 
-# TODO: add other open data
-
-# C. NEIGHBORHOOD BOUNDARIES
-
-# TODO: add other neighborhood code
-
-# import tract boundaries as proxy for neighborhoods
+# import Census tract boundaries as proxy for neighborhoods
 # TODO: also import median income here for generalizability test later on?
 tracts <- 
   get_acs(geography = "tract",
-          variables = 'B25003_001E',
+          variables = "B19013_001E", # median household income
+          year = year,
+          state = state,
+          county = county,
+          geometry = T,
+          output = "wide") %>%
+  dplyr::select(GEOID, B19013_001E, geometry)%>%
+  rename(tract = GEOID,
+         medianIncome = B19013_001E) %>%
+  st_transform(boulderCRS)
+
+# isolate tract boundaries to join to home data
+tractsData <- st_join(homeIDs, tracts) %>%
+  dplyr::select(-medianIncome) %>%
+  st_drop_geometry()
+
+# B2. "Neighborhoods" created from open data
+
+# TODO: add other neighborhood code
+```
+
+### C. American Community Survey demographic and housing data
+
+```{r data: }
+# TODO: add ACS data
+
+# review available variables
+acsVariableList <- load_variables(year,"acs5", cache = TRUE)
+
+# define variables to import
+acsVars <- c("B02001_001E", # race: total
+           "B02001_002E", # race: white alone
+           'B25003_001E', # tenure: occupied housing units
+           'B25003_002E', # tenure: owner-occupied
+           'B25002_001E', # occupancy: total housing units
+           'B25002_003E', # occupancy: vacant housing units
+           'B15003_001E', # educational attainment: total
+           'B15003_022E', # educational attainment: bachelor's degree
+           'B15003_023E', # educational attainment: master's degree
+           'B15003_024E', # educational attainment: professional degree
+           'B15003_025E', # educational attainment: doctorate degree
+           'B19001_001E', # household income: total
+           'B19001_002E', # household income: less than $10k
+           'B19001_003E', # household income: $10-15k
+           'B19001_004E', # household income: $15-20k
+           'B19001_005E', # household income: $20-25k
+           'B19001_006E', # household income: $25-30k
+           'B19001_007E', # household income: $30-35k
+           'B19001_008E', # household income: $35-40k
+           'B19001_009E', # household income: $40-45k
+           'B19001_010E', # household income: $45-50k
+           'B19001_011E', # household income: $50-60k
+           'B19001_012E', # household income: $60-75k
+           'B19001_013E', # household income: $75-100k
+           'B19001_014E', # household income: $100-125k
+           'B19001_015E', # household income: $125-150k
+           'B19001_016E', # household income: $150-200k
+           'B19001_017E') # household income: $200 or more
+
+# import variables from ACS 2019 5-year
+blockGroups <- 
+  get_acs(geography = "block group",
+          variables = acsVars,
           year = year,
           state = state,
           county = county,
           geometry = T,
           output = 'wide') %>%
-  dplyr::select(GEOID, geometry)%>%
-  rename(tract = GEOID) %>%
+  dplyr::select(-ends_with('M')) %>%
+  rename(# white population
+         raceTotal = B02001_001E, # race: total
+         whiteAlone = B02001_002E, # race: white alone
+         # vacant housing units
+         totalUnits = B25002_001E, # occupancy status: total
+         vacantUnits = B25002_003E, # occupancy status: vacant
+         # homeowners
+         occupiedUnits = B25003_001E, # tenure: total
+         ownerOccupied = B25003_002E, # tenure: owner-occupied
+         # highest educational attainment
+         eduTotal = B15003_001E, # educational attainment: total
+         eduBachs = B15003_022E, # educational attainment: bachelor's degree
+         eduMasts = B15003_023E, # educational attainment: master's degree
+         eduProfs = B15003_024E, # educational attainment: professional degree
+         eduDocts = B15003_025E, # educational attainment: doctorate degree
+         # household income
+         incomeTotal = B19001_001E, # household income: total
+         income000 = B19001_002E, # household income: less than $10k
+         income010 = B19001_003E, # household income: $10-15k
+         income015 = B19001_004E, # household income: $15-20k
+         income020 = B19001_005E, # household income: $20-25k
+         income025 = B19001_006E, # household income: $25-30k
+         income030 = B19001_007E, # household income: $30-35k
+         income035 = B19001_008E, # household income: $35-40k
+         income040 = B19001_009E, # household income: $40-45k
+         income045 = B19001_010E, # household income: $45-50k
+         income050 = B19001_011E, # household income: $50-60k
+         income060 = B19001_012E, # household income: $60-75k
+         income075 = B19001_013E, # household income: $75-100k
+         income100 = B19001_014E, # household income: $100-125k
+         income125 = B19001_015E, # household income: $125-150k
+         income150 = B19001_016E, # household income: $150-200k
+         income200 = B19001_017E # household income: $200k or more
+         )%>%
+  mutate(pctWhite = whiteAlone/raceTotal,
+         pctVacant = vacantUnits/totalUnits,
+         pctOwnerOccupied = ownerOccupied/occupiedUnits,
+         # calculate percent with bachelor's or higher
+         # TODO: compare percent postgraduate?
+         pctHigherEdu = if_else(
+           eduTotal > 0, (eduBachs + eduMasts + eduProfs + eduDocts)/eduTotal, 0
+         ),
+         # calculate percent in each income category
+         pctIncome000 = income000/incomeTotal,
+         pctIncome010 = income010/incomeTotal,
+         pctIncome015 = income015/incomeTotal,
+         pctIncome020 = income020/incomeTotal,
+         pctIncome025 = income025/incomeTotal,
+         pctIncome030 = income030/incomeTotal,
+         pctIncome035 = income035/incomeTotal,
+         pctIncome040 = income040/incomeTotal,
+         pctIncome045 = income045/incomeTotal,
+         pctIncome050 = income050/incomeTotal,
+         pctIncome060 = income060/incomeTotal,
+         pctIncome075 = income075/incomeTotal,
+         pctIncome100 = income100/incomeTotal,
+         pctIncome125 = income125/incomeTotal,
+         pctIncome150 = income150/incomeTotal,
+         pctIncome200 = income200/incomeTotal,
+         # recode final income features after exploratory analysis 
+         pctIncomeBelow100k = (
+           income000 + income010 + income015 + income020 + income025 + 
+             income030 + income035 + income040 + income045 + income050 + 
+             income060 + income075
+           )/incomeTotal,
+         pctIncomeAbove200k = pctIncome200
+        ) %>%
+  select(GEOID, pctWhite, pctVacant, pctOwnerOccupied, pctHigherEdu, 
+         pctIncomeBelow100k, pctIncomeAbove200k, geometry) %>%
+  rename(blockGroup = GEOID) %>%
   st_transform(boulderCRS)
 
-# isolate tract boundaries to join to home data
-tractsData <- st_join(homeIDs, tracts) %>%
-  st_drop_geometry()
+blockGroupBoundaries <- blockGroups %>%
+  select(blockGroup, geometry)
 
-# D. JOIN DATA
+censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
+  st_drop_geometry() %>%
+  left_join(., blockGroups, by="blockGroup") %>%
+  dplyr::select(-blockGroup, -geometry)
 
+```
+
+### D. Additional open data
+
+
+```{r data: combined}
 # TODO: add open data
-finalData <- left_join(homeData, tractsData)
+finalData <- left_join(homeData, tractsData) %>%
+  left_join(., censusData)
 
 ```
 
@@ -235,17 +415,148 @@ finalData <- left_join(homeData, tractsData)
 
 > Present a table of summary statistics with variable descriptions. Sort these variables by their category (internal characteristics, amenities/public services or spatial structure). Check out the `stargazer` package for this.
 
+```{r summary statistics, results = "asis"}
+
+# TODO: label variables
+# TODO: remove columns that are not predictors (toPredict, MUSA_ID)
+
+summaryStats <- sumtable(as.data.frame(finalData), add.median = T, out = "return")
+
+summaryStats %>%
+  kbl(
+    caption = "Summary Statistics", 
+    digits = 2, 
+    format.args = list(big.mark = ","),
+    knitr.kable.NA = "*"
+  ) %>%
+  kable_classic()
+
+```
+
 ## Correlation Matrix
 
 > Present a correlation matrix
+
+```{r correlation matrix}
+
+# select numeric variables
+numericVars <- select_if(st_drop_geometry(finalData), is.numeric) %>%
+  dplyr::select(
+    # omit for more legible chart
+    -toPredict,
+    -MUSA_ID) %>%
+  na.omit()
+
+# generate correlation matrix
+ggcorrplot(
+   round(cor(numericVars), 1),
+   p.mat = cor_pmat(numericVars),
+   show.diag = TRUE,
+   colors = c("#25cb10", "#ffffff", "#fa7800"),
+   type = "lower",
+   insig = "blank"
+) +
+   labs(title = "Correlation across numeric variables") +
+  plotTheme()
+
+
+```
 
 ## Interesting Correlations
 
 > Present 4 home price correlation scatterplots that you think are of interest. I’m going to look for **interesting open data** that you’ve integrated with the home sale observations.
 
+```{r correlation scatterplots}
+
+# TODO: select variables: pctHigherEdu, pctIncomeAbove
+# TODO: combine income categories? Boulder County median household income in 2019 == $83,019
+
+st_drop_geometry(finalData) %>%
+  dplyr::select(price, starts_with("pct")) %>%
+  pivot_longer(cols = !price, names_to = "Variable", values_to = "Value") %>%
+  ggplot(aes(Value, price)) +
+    geom_point(size = 0.5) +
+    geom_smooth(method = "lm", color = "#FA7800") +
+    facet_wrap(~Variable, ncol = 4, scales = "free") +
+    labs(title = "Price as a function of continuous variables") +
+  plotTheme()
+
+```
+
 ## Spatial Distribution of Sale Prices
 
 > Develop 1 map of your dependent variable (sale price)
+
+``` {r spatial distribution of sale prices}
+
+# TODO: display these side by side with gridxtra?
+
+# --- 1. sale price by Census tract ---
+
+# import county limits
+countyLimits <- st_read('County_Boundary.geojson') %>%
+  select(OBJECTID, geometry) %>%
+  st_transform(boulderCRS)
+
+# calculate mean sale price by tract
+priceByTract <- finalData %>%
+  dplyr::select(tract, price) %>%
+  st_drop_geometry() %>%
+  group_by(tract) %>%
+  summarize(
+    meanPrice = mean(price),
+    medianPrice = median(price)
+  ) %>%
+  left_join(., tracts) %>%
+  dplyr::select(-medianIncome) %>%
+  st_sf()
+
+ggplot() +
+  geom_sf(
+    data = priceByTract, 
+    aes(fill = meanPrice),
+    lwd = 0.1,
+    color = "black",
+    alpha = 0.7
+  ) +
+  scale_fill_viridis_c("Mean sale price",
+                       direction = -1,
+                       option = "G") +
+  geom_sf(data = countyLimits, fill = "transparent") +
+  labs(
+    title = "Spatial distribution of home prices",
+    subtitle = "Mean sale price by Census tract",
+    caption = "Fig. X.X" # TODO: number figure before finalizing
+  ) +
+  mapTheme()
+
+# --- 2. individual home sale prices ---
+
+# import municipality limits
+munis <- st_read('Municipalities.geojson') %>%
+  select(ZONEDESC, geometry) %>%
+  st_transform(boulderCRS)
+
+# map individual home prices
+ggplot() +
+  geom_sf(
+    data = homeData,
+    size = 0.5,
+    aes(color = price)
+  ) +
+  scale_color_viridis_c("Sale price",
+                       direction = -1, 
+                       option = "D") +
+  geom_sf(data = countyLimits, fill = "transparent") +
+  geom_sf(data = munis, fill = "transparent", lwd = 0.5) +
+  labs(
+    title = "Spatial distribution of sale prices",
+    subtitle = "Individual homes relative to county and municipality boundaries",
+    caption = "Fig. X.X" # TODO: number figure before finalizing
+  ) +
+  mapTheme()
+
+```
 
 ## Spatial Distribution of Predictors
 
@@ -267,6 +578,41 @@ finalData <- left_join(homeData, tractsData)
 
 > Provide a **polished table** of your (training set) lm summary results (coefficients, R2 etc).
 
+```{r regression results, results = "asis"}
+
+# select regression data
+regData <- finalData
+
+# split data into training (75%) and validation (25%) sets
+inTrain <- createDataPartition(
+  y = paste(
+    regData$extWall,
+    regData$floodRisk,
+    regData$neighborhood
+  ),
+  p = 0.75, list = FALSE)
+
+homes.training <- regData[inTrain,]
+homes.test <- regData[-inTrain,]
+
+# estimate model on training set
+reg.training <- lm(logPrice ~ .,
+                   data = st_drop_geometry(regData) %>%
+                     dplyr::select(-toPredict, -MUSA_ID, -price)
+)
+
+
+# view results
+# TODO: remove before finalizing
+# summary(reg.training)
+
+# output results table
+# TODO: recode and/or label variables to make this not look terrible
+stargazer(reg.training, type = "html")
+
+
+```
+
 ## MAE and MAPE
 
 > Provide a **polished table** of mean absolute error and MAPE for a single **test set**. Check out the “kable” function for markdown to create nice tables.
@@ -285,7 +631,7 @@ finalData <- left_join(homeData, tractsData)
 
 ## Map of Predicted Values
 
-> Provide a map of your predicted values for where ‘toPredict’ is **both** 0 and 1.
+> Provide a map of your predicted values for where ‘’ is **both** 0 and 1.
 
 ## MAPE by Neighborhood
 

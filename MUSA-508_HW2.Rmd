@@ -279,11 +279,13 @@ homeIDs <- data %>%
 
 # TODO: delete if we don't actually use
 countyLimits <- st_read('County_Boundary.geojson') %>%
-  select(OBJECTID, geometry)
+  select(OBJECTID, geometry) %>%
+  st_transform(boulderCRS)
 
 # TODO: delete if we don't actually use
 munis <- st_read('Municipalities.geojson') %>%
-  select(ZONEDESC, geometry)
+  select(ZONEDESC, geometry) %>%
+  st_transform(boulderCRS)
 # CRS: EPSG: 4326, WGS84, metres
 
 
@@ -297,6 +299,7 @@ zones <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
   rename(SUBCOMMUNITY = ZONEDESC) %>%
   summarize(geometry = st_union(geometry))
 
+# TODO: figure out if used; delete otherwise
 # Subset the generic zones as a separate map just if needed
 genericZones <- c('Business',
                   'Commercial',
@@ -828,7 +831,8 @@ summary(RegA)
 regData <- d3n # Update with tested model
 
 # Remove the toPredict homes
-regData <- regData
+regData <- regData %>%
+  dplyr::select(toPredict == 0)
 
 # Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
