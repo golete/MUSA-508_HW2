@@ -104,6 +104,8 @@ data <- st_read("studentData.geojson") %>%
 # recode missing data and engineered features
 homeRecodes <- data %>%
   mutate(
+    # change year to factor from float
+    year = as.factor(year),
     # calculate log of price to normalize positive skew
     logPrice = log(price),
     # recode missing construction material values
@@ -112,16 +114,12 @@ homeRecodes <- data %>%
       ConstCode == 300 ~ "Unspecified",
       ConstCode > 300 ~ as.character(ConstCodeDscr)
     ),
-    # recode missing basement values
-    basement = if_else(bsmtType == 0, "None", as.character(bsmtTypeDscr)),
-    # recode missing car storage values
-    carStorage = if_else(carStorageType == 0, "None", as.character(carStorageTypeDscr)),
-    # recode missing a/c values
-    acType = case_when(
-      is.na(Ac) ~ "None",
-      Ac == 200 ~ "Unspecified", # Code with no description
-      Ac >= 210 ~ as.character(AcDscr) # "Attic Fan", "Evaporative Cooler", "Whole House" unchanged
-    ),
+    # recode basement as dummy
+    hasBasement = if_else(bsmtType == 0, 0, 1),
+    # recode car storage as garage dummy
+    hasGarage = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0),
+    # recode a/c as dummy, excluding fans, evaporative coolers, and unspecified
+    hasAC = replace_na(if_else(Ac == 210, 1, 0), 0),
     # recode missing heating values
     heatingType = case_when(
       is.na(Heating) ~ "None",
@@ -184,16 +182,15 @@ homeRecodes <- data %>%
     ),
     # recode section_num as manySections
     manySections = if_else(section_num > 1, 1, 0),
+    # recode design to remove all caps for table
+    designType = if_else(
+      designCode == "0120", "Multi-Story Townhouse", as.character(designCodeDscr)
+    ),
     # calculate total rooms, including baths
     nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths/2),
-    # separate quarter sold from year sold
-    quarterSold = str_sub(year_quarter, -1, -1)
     # calculate age and effective age (time since last major renovation)
     # age = year - builtYear,
     # effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
-    # try simpler basement and garage categories
-    # basementDummy = if_else(bsmtType == 0, 0, 1),
-    # garageDummy = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0)
   )
   
 # TODO: remove? did not see used anywhere else

@@ -30,6 +30,9 @@ library(mapview)
 library(stargazer)
 library(vtable)
 
+# set Census API key
+census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
+
 # set map styling options
 mapTheme <- function() {
   theme( 
@@ -96,16 +99,12 @@ homeRecodes <- data %>%
       ConstCode == 300 ~ "Unspecified",
       ConstCode > 300 ~ as.character(ConstCodeDscr)
     ),
-    # recode missing basement values
-    basement = if_else(bsmtType == 0, "None", as.character(bsmtTypeDscr)),
-    # recode missing car storage values
-    carStorage = if_else(carStorageType == 0, "None", as.character(carStorageTypeDscr)),
-    # recode missing a/c values
-    acType = case_when(
-      is.na(Ac) ~ "None",
-      Ac == 200 ~ "Unspecified", # Code with no description
-      Ac >= 210 ~ as.character(AcDscr) # "Attic Fan", "Evaporative Cooler", "Whole House" unchanged
-    ),
+    # recode basement as dummy
+    hasBasement = if_else(bsmtType == 0, 0, 1),
+    # recode car storage as garage dummy
+    hasGarage = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0),
+    # recode a/c as dummy, excluding fans, evaporative coolers, and unspecified
+    hasAC = replace_na(if_else(Ac == 210, 1, 0), 0),
     # recode missing heating values
     heatingType = case_when(
       is.na(Heating) ~ "None",
@@ -174,14 +173,9 @@ homeRecodes <- data %>%
     ),
     # calculate total rooms, including baths
     nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths/2),
-    # separate quarter sold from year sold
-    quarterSold = str_sub(year_quarter, -1, -1)
     # calculate age and effective age (time since last major renovation)
     # age = year - builtYear,
     # effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
-    # try simpler basement and garage categories
-    # basementDummy = if_else(bsmtType == 0, 0, 1),
-    # garageDummy = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0)
   )
 
 # create clean data frame for modeling
@@ -198,6 +192,8 @@ homeData <- homeRecodes %>%
     -saleDate,
     -address,
     -bld_num,
+    # redundant
+    -year,
     # too much missing data
     -Stories,
     -UnitCount,
@@ -237,7 +233,7 @@ homeIDs <- data %>%
 ### B. "Neighborhood" boundaries
 
 ```{r data: neighborhoods}
-# B. NEIGHBORHOOD BOUNDARIES
+# B. --- NEIGHBORHOOD BOUNDARIES ---
 
 # B1. Census tracts
 
@@ -274,7 +270,8 @@ tractsData <- st_join(homeIDs, tracts) %>%
 ### C. American Community Survey demographic and housing data
 
 ```{r data: }
-# TODO: add ACS data
+
+# --- C. AMERICAN COMMUNITY SURVEY DATA ---
 
 # review available variables
 acsVariableList <- load_variables(year,"acs5", cache = TRUE)
@@ -405,7 +402,12 @@ censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
 
 
 ```{r data: combined}
+# D. --- ADDITIONAL OPEN DATA ---
+
 # TODO: add open data
+
+# E. --- COMBINE ALL ---
+
 finalData <- left_join(homeData, tractsData) %>%
   left_join(., censusData)
 
