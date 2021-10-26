@@ -1,0 +1,1036 @@
+---
+title: "MUSA 508, Hedonic Home Price Prediction"
+author: "Ericson, E. & León, A."
+output: html_document
+  code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo= F, warning=F, error=F, message=F)
+
+# Libraries
+
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(dummies)
+library(spdep)
+library(caret)
+library(ckanr)
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot)
+library(kableExtra)
+library(jtools)     # for regression model plots
+library(ggstance) # to support jtools plots
+library(mapview)
+
+# Functions
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+# Working setup
+# set API key
+census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
+
+options(scipen = 999)
+g <- glimpse
+m <- mapview
+
+palette5 <- c("#f0f9e8","#bae4bc","#7bccc4","#139ed1","#0868ac")
+```
+
+## 0. Intro [PLACEHOLDER]
+
+
+
+
+
+
+
+# 1. Data wrangling 
+
+
+
+
+
+
+```{r data A: homes, echo=F, error=F, message=FALSE, warning=FALSE}
+
+# --- DATA WRANGLING ---
+
+# A. HOME VALUE DATA
+
+# set actual CRS for Bouilder Colorado
+boulderCRS <- 'ESRI:102254'
+
+# read in home value data
+data <- st_read("studentData.geojson") %>%
+  st_set_crs('ESRI:102254') %>%
+  st_transform(boulderCRS)
+# ESRI:102254 /// EPSG 4152 in meters
+
+
+# A1. Subset primary data for prediction
+
+subdata <- data %>%
+  dplyr::select(MUSA_ID, geometry)
+
+
+house <- data %>%
+  mutate(
+    # calculate log of price to normalize positive skew
+    logPrice = log(price),
+    # Rooms
+    nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths)/2,
+    totalBaths = nbrFullBaths + nbrThreeQtrBaths + (0.5 * nbrHalfBaths),
+    btrRatio = totalBaths/nbrRooms,
+    houseSize = nbrRooms*TotalFinishedSF,
+    quarterSold = str_sub(year_quarter, -1, -1),
+    # Quality recoded as numeric variable
+    qualityNum = case_when(
+      qualityCode == 10 ~ 1, # QualityCodeDscr == "LOW "
+      qualityCode == 20 ~ 2, # "FAIR "
+      qualityCode == 30 ~ 3, # "AVERAGE "
+      qualityCode == 31 ~ 4, # "AVERAGE + "
+      qualityCode == 32 ~ 5, # "AVERAGE ++ "
+      qualityCode == 40 ~ 6, # "GOOD "
+      qualityCode == 41 ~ 7, # "GOOD + "
+      qualityCode == 42 ~ 8, # "GOOD ++ "
+      qualityCode == 50 ~ 9, # "VERY GOOD "
+      qualityCode == 51 ~ 10, # "VERY GOOD + "
+      qualityCode == 52 ~ 11, # "VERY GOOD ++ "
+      qualityCode == 60 ~ 12, # "EXCELLENT "
+      qualityCode == 61 ~ 13, # "EXCELLENT + "
+      qualityCode == 62 ~ 14, # "EXCELLENT++ "
+      qualityCode == 70 ~ 15, # "EXCEPTIONAL 1 "
+      qualityCode == 80 ~ 16, # "EXCEPTIONAL 2 "
+    ),
+    # recode missing construction material values
+    constMat = case_when(
+      ConstCode == 0 ~ "Missing",
+      ConstCode == 300 ~ "Unspecified",
+      ConstCode > 300 ~ as.character(ConstCodeDscr)
+    ),
+    # recode missing primary exterior wall values
+    extWall = if_else(ExtWallPrim == 0, "Missing", as.character(ExtWallDscrPrim)),
+    # calculate age and effective age (time since last major renovation)
+    age = year - builtYear,
+    effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
+    builtEra = case_when(
+      builtYear < 1910 ~ "Pre-1910",
+      between(builtYear, 1910, 1919) ~ "1910s",
+      between(builtYear, 1920, 1929) ~ "1920s",
+      between(builtYear, 1930, 1939) ~ "1930s",
+      between(builtYear, 1940, 1949) ~ "1940s",
+      between(builtYear, 1950, 1959) ~ "1950s",
+      between(builtYear, 1960, 1969) ~ "1960s",
+      between(builtYear, 1970, 1979) ~ "1970s",
+      between(builtYear, 1980, 1989) ~ "1980s",
+      between(builtYear, 1990, 1999) ~ "1990s",
+      between(builtYear, 2000, 2009) ~ "2000s",
+      between(builtYear, 2010, 2019) ~ "2010s",
+      builtYear >= 2020 ~ "2020s"),
+    # try simpler basement categories
+    basementDummy = if_else(bsmtType == 0, 0, 1),
+    garageDummy = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0)
+  )
+
+varsAnum <- 
+  c('price',
+  'logPrice',
+  'MUSA_ID', 
+  'toPredict',   
+  'geometry')
+
+varsAcat <- 
+  c('TotalFinishedSF',
+  'nbrRooms',
+  'totalBaths',
+  'btrRatio ',
+  'quarterSold',
+  'qualityNum',
+  'age',
+  'effectiveAge',
+  'builtEra',
+  'designCodeDscr',
+  'basementDummy',
+  'garageDummy',
+  'constMat',
+  'extWall')
+
+# trim to a single House subset to use
+houseData <- house %>%
+  # drop unnecessary columns and columns with too much missing data
+  dplyr::select('price',
+                'logPrice',
+                'MUSA_ID',
+                'toPredict',
+                'geometry',
+                'houseSize',
+                'TotalFinishedSF',
+                'nbrRooms',
+                'totalBaths',
+                'quarterSold',
+                'btrRatio',
+                'qualityNum',
+                'age',
+                'effectiveAge',
+                'builtEra',
+                'designCodeDscr',
+                'basementDummy',
+                'garageDummy',
+                'constMat',
+                'extWall')
+
+```
+
+
+
+```{r data B: boundaries, echo= F, warning=F, error=F, message=F}
+
+# B. BOUNDARY DATA (Neighborhoods, school districts, city, etc.)
+
+# B1. Boulder county boundaries
+
+countylimits <- st_read('County_Boundary.geojson') %>%
+  select(OBJECTID, geometry)
+
+munis <- st_read('Municipalities.geojson') %>%
+  select(ZONEDESC, geometry)
+# CRS: EPSG: 4326, WGS84, metres
+
+
+# B2. Boulder city and other cities/zones boundaries
+
+zones <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
+  st_transform(boulderCRS) %>%
+  select(ZONEDESC, geometry) %>%
+  filter(ZONEDESC != 'Boulder') %>%
+  group_by(ZONEDESC) %>%
+  rename(SUBCOMMUNITY = ZONEDESC) %>%
+  summarize(geometry = st_union(geometry))
+
+# Subset the generic zones as a separate map just if needed
+genericZones <- c('Business',
+                  'Commercial',
+                  'Economic Development',
+                  'Estate Residential',
+                  'General Industrial',
+                  'Light Industrial',
+                  'Manufactured Home',
+                  'Mountain Institutional',
+                  'Multiple Family',
+                  'Rural Residential',
+                  'Suburban Residential',
+                  'Transitional')
+notNamedZones <- zones %>%
+  filter(SUBCOMMUNITY %in% genericZones)
+
+# Union the polygons that are not in boulder City limits, just in case
+notCity <- zones %>% st_union()
+
+
+# B3. Boulder City Zoning Districts
+districts <- st_read('Zoning_Districts.geojson') %>%
+  st_transform(boulderCRS) %>%
+  select(OBJECTID, ZONING, ZNDESC, geometry)
+
+# Load the subcommunities / neighborhoods rough boundaries
+subcomms <-  st_read('Subcommunities.geojson') %>%
+  st_transform(boulderCRS)
+
+
+# Join the region zoning polygons with the subcommunities polygons and union
+cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
+  select(SUBCOMMUNITY, geometry) %>%
+  group_by(SUBCOMMUNITY) %>%
+  summarize(geometry = st_union(geometry))
+
+
+# FINAL NEIGHBORHOOD DATA TO USE
+neighborhoods <- rbind(zones, cityHoods) %>%
+  rename(community = SUBCOMMUNITY)
+
+neighborhoodData <- st_join(subdata, neighborhoods) %>%
+  distinct(.,MUSA_ID, .keep_all = TRUE) %>%
+  st_drop_geometry() 
+
+```
+
+
+
+```{r data C: Census, echo= F, warning=F, error=F, message=F}
+
+# C. CENSUS DATA
+
+year <- 2019
+state <- 08
+county <- 13
+
+# review available variables
+acsVariableList <- load_variables(year,"acs5",cache = TRUE)
+
+# define variables to import
+varsC <- c('B25003_001E', # Total housing units
+           'B25003_002E', # Total owner-occupied
+           'B25003A_001E', # Total white households
+           'B25002_001E', # Total housing units
+           'B25002_003E', # Total vacant housing units
+           'B15003_001E', # Total education
+           'B15003_022E', # Bachelor's degree
+           'B15003_023E', # Master's degree
+           'B15003_024E', # Professional school degree
+           'B15003_025E', # Doctorate degree
+           'B19001_001E', # Median income - Total
+           'B19001_002E', # Median income - Less than 10
+           'B19001_003E', # Median income - 10-15
+           'B19001_004E', # Median income 15-20
+           'B19001_005E', # Median income 20-25
+           'B19001_006E', # Median income 25-30
+           'B19001_007E', # Median income 30-35
+           'B19001_008E', # Median income 35-40
+           'B19001_009E', # Median income 40-45
+           'B19001_010E', # Median income 45-50
+           'B19001_011E', # Median income 50-60
+           'B19001_012E', # Median income 60-75
+           'B19001_013E', # Median income 75-100
+           'B19001_014E', # Median income 100-125
+           'B19001_015E', # Median income 125-150
+           'B19001_016E', # Median income 150-200
+           'B19001_017E',
+           'B19013_001E') # Median income 200 or more
+
+
+# import variables from ACS 2019 5-year
+blocks <- 
+  get_acs(geography = "block group",
+          variables = varsC,
+          year = year,
+          state = state,
+          county = county,
+          geometry = T,
+          output = 'wide') %>%
+  dplyr::select(-ends_with('M')) %>%
+  rename(HHtotal = B25003_001E,
+         HUtotal = B25002_001E,
+         HHownerOc = B25003_002E,
+         HHwhite = B25003A_001E, # Total white households
+         HHvacant = B25002_003E, # Total vacant housing units
+         EduTotal = B15003_001E, # Total education
+         EduBachs = B15003_022E, # Bachelor's degree
+         EduMasts = B15003_023E, # Master's degree
+         EduProfs = B15003_024E, # Professional school degree
+         EduDocts = B15003_025E, # Doctorate degree
+         hhIncome = B19001_001E, # Median income - Total
+         hhIncome000 = B19001_002E, # Median income - Less than 10
+         hhIncome010 = B19001_003E, # Median income - 10-15
+         hhIncome015 = B19001_004E, # Median income 15-20
+         hhIncome020 = B19001_005E, # Median income 20-25
+         hhIncome025 = B19001_006E, # Median income 25-30
+         hhIncome030 = B19001_007E, # Median income 30-35
+         hhIncome035 = B19001_008E, # Median income 35-40
+         hhIncome040 = B19001_009E, # Median income 40-45
+         hhIncome045 = B19001_010E, # Median income 45-50
+         hhIncome050 = B19001_011E, # Median income 50-60
+         hhIncome060 = B19001_012E, # Median income 60-75
+         hhIncome075 = B19001_013E, # Median income 75-100
+         hhIncome100 = B19001_014E, # Median income 100-125
+         hhIncome125 = B19001_015E, # Median income 125-150
+         hhIncome150 = B19001_016E, # Median income 150-200
+         hhIncome200 = B19001_017E, # Median income 200 or more 
+         hhMedIncome = B19013_001E
+         )%>%
+  mutate(PCTHHowner = HHownerOc/HHtotal,
+         PCTVacant = HHvacant/HUtotal,
+         PCTHHwhite = HHwhite/HHtotal,
+         PCT25yrHighEdu = (EduBachs+EduMasts+EduProfs+EduDocts)/EduTotal,
+         PCTHHMI000 = hhIncome000/hhIncome,
+         PCTHHMI010 = hhIncome010/hhIncome,
+         PCTHHMI015 = hhIncome015/hhIncome,
+         PCTHHMI020 = hhIncome020/hhIncome,
+         PCTHHMI025 = hhIncome025/hhIncome,
+         PCTHHMI030 = hhIncome030/hhIncome,
+         PCTHHMI035 = hhIncome035/hhIncome,
+         PCTHHMI040 = hhIncome040/hhIncome,
+         PCTHHMI045 = hhIncome045/hhIncome,
+         PCTHHMI050 = hhIncome050/hhIncome,
+         PCTHHMI060 = hhIncome060/hhIncome,
+         PCTHHMI075 = hhIncome075/hhIncome,
+         PCTHHMI100 = hhIncome100/hhIncome,
+         PCTHHMI125 = hhIncome125/hhIncome,
+         PCTHHMI150 = hhIncome150/hhIncome,
+         PCTHHMI200 = hhIncome200/hhIncome) %>%
+  select(-HHtotal, -HUtotal, -HHvacant, -HHownerOc,-HHwhite,
+         -starts_with('B17026')) %>%
+  rename(block = GEOID) %>%
+  st_transform(boulderCRS)
+
+z <- blocks %>%
+  mutate(lowIncome =
+           PCTHHMI000+
+           PCTHHMI010+
+           PCTHHMI015+
+           PCTHHMI020+
+           PCTHHMI025+
+           PCTHHMI030+
+           PCTHHMI035+
+           PCTHHMI040+
+           PCTHHMI045+
+           PCTHHMI050+
+           PCTHHMI060+
+           PCTHHMI075,
+         highIncome=
+           PCTHHMI100+
+           PCTHHMI125+
+           PCTHHMI150+
+           PCTHHMI200)
+
+
+boulderBlocks <- blocks %>%
+  select(block, geometry)
+
+censusData <- st_join(subdata, boulderBlocks) %>%
+  st_drop_geometry() %>%
+  left_join(., blocks, by='block') %>%
+  select(-NAME, -geometry)
+
+# Get the Tracts for defining the neighborhoods
+
+boulderTracts <- 
+  get_acs(geography = "tract",
+          variables = 'B25003_001E',
+          year = year,
+          state = state,
+          county = county,
+          geometry = T,
+          output = 'wide') %>%
+  dplyr::select(GEOID, geometry)%>%
+  rename(tract = GEOID) %>%
+  st_transform(boulderCRS)
+
+tractsData <- st_join(subdata, boulderTracts)%>%
+  st_drop_geometry()
+
+```
+
+
+```{r data D: other data, echo= F, warning=F, error=F, message=F}
+
+# D. OTHER DATA (CRIME, FEMA, etc.)
+
+# D1. Wildfire history data
+
+wildfires <-
+  st_read('Wildfire_History.geojson') %>%
+  filter(ENDDATE > "2001-10-19 00:00:00") %>% # FILTER to only fires that happened after 2000
+  select(NAME, geometry) %>%
+  st_transform(boulderCRS) %>%
+  st_union() %>%
+  st_sf() %>%
+  mutate(wildfireHazard = 1)
+
+wildfireData <- st_join(subdata, wildfires) %>%
+  mutate(wildfireHazard = replace_na(wildfireHazard, 0)) %>%
+  select(MUSA_ID, wildfireHazard) %>%
+  st_drop_geometry() 
+
+
+
+
+# D2. CHAMP floodplain maps
+
+fldrisk = c(AE = 4, AH = 3, AO = 2, X = 1)
+
+floodplains <- 
+  st_read('Floodplain_-_BC_Regulated.geojson') %>%
+  st_transform(boulderCRS) %>%
+  select(SFHA_TF, #Special Flood Hazard Area. If the area is within the SFHA.
+         FLD_ZONE, #Flood Zone. This is a flood zone designation.
+         geometry) %>%
+  mutate(FLD_ZONE = recode(FLD_ZONE, !!!fldrisk, .default = 0)) %>%
+  group_by(FLD_ZONE) %>%
+  summarize(geometry = st_union(geometry))%>%
+  rename(floodRisk = FLD_ZONE)
+
+floodData <- st_join(subdata, floodplains) %>%
+  st_drop_geometry() %>%
+  mutate(floodRisk = replace_na(floodRisk, 0))
+
+
+
+
+
+
+
+
+```
+
+
+
+```{r data E: experimental, echo= F, warning=F, error=F, message=F}
+
+# E1. Whole Foods locations
+
+wholefoodsLocations <- st_read("wholefoodsmarkets_boulderCO.csv")
+
+wholefoods <- st_as_sf(wholefoodsLocations, coords = c("lon", "lat"), crs = 4326) %>% #4326
+  dplyr::select(-ID, -phone, -address) %>%
+  st_sf() %>%
+  st_transform(boulderCRS)
+
+cutoffDist = 16100
+wholefoodsData <- subdata %>%
+  mutate(wholeFoods = nn_function(st_coordinates(.), st_coordinates(wholefoods), 1)) %>%
+  mutate(wholeFoods = ifelse(wholeFoods > cutoffDist, cutoffDist, wholeFoods)) %>%
+  st_drop_geometry()
+
+
+# E2. Marijuana dispensaries
+
+marijuana <- st_read("Marijuana_Establishments.geojson") %>%
+  dplyr::select(OBJECTID, Type, geometry) %>%
+  st_sf() %>%
+  st_transform(boulderCRS)
+
+marijuanaData <- subdata %>%
+  mutate(dispensaries = nn_function(st_coordinates(.), st_coordinates(marijuana), 1)) %>%
+  st_drop_geometry()
+
+
+```
+
+```{r data F: finished dataset}
+
+# F. Finish and export dataset EXPORT
+export <-
+  left_join(houseData, neighborhoodData, by = 'MUSA_ID') %>%
+  left_join(., censusData, by = 'MUSA_ID') %>%
+  left_join(., wildfireData, by = 'MUSA_ID') %>%
+  left_join(., floodData, by = 'MUSA_ID') %>%
+  left_join(., wholefoodsData, by = 'MUSA_ID') %>%
+  left_join(., marijuanaData, by = 'MUSA_ID') %>%
+  left_join(., tractsData, by = 'MUSA_ID')
+
+```
+
+
+
+
+# 2. Exploratory Analysis
+
+
+```{r EDA: Initial analysis, echo= F, warning=F, error=F, message=F}
+
+# 2. EXPLORATORY ANALYSIS
+
+# Decide the geometry to use for neighborhoods
+# 1 for neighborhoods and 2 for tracts
+idx <- 2
+geounit <- c('community', 'tract')
+
+finalData <- export %>%
+  rename(neighborhood = geounit[idx]) %>%  # geometry to be used
+  select(-geounit[-idx])                   # geometry not to be used
+
+```
+
+
+```{r EDA: Correlations, echo= F, warning=F, error=F, message=F}
+
+# plot correlation of individual variables with home values
+
+varsX <- c(
+  'houseSize',
+  'TotalFinishedSF',
+  'nbrRooms',       # KEEP fn, choose between house size or this
+  'btrRatio',       # KEEP fn
+  'qualityNum',     # KEEP
+  'effectiveAge',   # KEEP
+  'builtEra',       # KEEP
+  'designCodeDscr', # KEEP - Good
+  'basementDummy',  # KEEP fn
+  'garageDummy',    # KEEP fn
+  'constMat',       # KEEP Good
+  'extWall'         # KEEP Good but may be colinear with constMat
+  )
+
+st_drop_geometry(finalData) %>%
+  dplyr::select(logPrice, btrRatio) %>%
+  pivot_longer(cols = !logPrice, names_to = "Variable", values_to = "Value") %>%
+  ggplot(aes(Value, logPrice)) +
+    geom_point(size = 0.5) +
+    geom_smooth(method = "lm", color = "#FA7800") +
+    facet_wrap(~Variable, ncol = 4, scales = "free") +
+    labs(title = "Price as a function of continuous variables")
+
+
+st_drop_geometry(finalData) %>% 
+  dplyr::select(logPrice, quarterSold) %>%
+  mutate(quarterSold = as.factor(quarterSold)) %>%
+  filter(logPrice <= 1000000) %>%
+  gather(Variable, Value, -logPrice) %>% 
+  ggplot(aes(Value, -logPrice)) +
+  geom_bar(position = "dodge", stat = "summary", fun.y = "mean") +
+  facet_wrap(~Variable, ncol = 1, scales = "free") +
+  labs(title = "Price as a function of\ncategorical variables", y = "Mean_Price") +
+  plotTheme() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# select numeric variables for correlation matrix
+numericVars <- select_if(st_drop_geometry(finalData), is.numeric) %>%
+  dplyr::select(
+    # omit for more legible chart
+    -toPredict,
+    -MUSA_ID)
+
+numericVarsMx <- numericVars %>%
+  na.omit()
+
+# create numeric variable correlation matrix and convert to data frame
+corMatrix <- cor(numericVarsMx)
+corDF <- as.data.frame(as.table(corMatrix)) %>%
+  rename(Cor = Freq)
+
+# review numeric variables most correlated with price
+corPrice <- filter(corDF, Var1 == "price")
+corLogPrice <- filter(corDF, Var1 == "logPrice") # stronger correlations
+
+corFinishedSF <- filter(corDF, Var1 == "TotalFinishedSF")
+
+# generate correlation matrix chart for numeric variables
+ggcorrplot(
+  round(cor(numericVarsMx), 1),
+  p.mat = cor_pmat(numericVarsMx),
+  show.diag = TRUE,
+  colors = c("#25cb10", "#ffffff", "#fa7800"),
+  type = "lower",
+  insig = "blank",
+  lab =T
+) +
+  labs(title = "Correlation across numeric variables")
+
+
+# select non-numeric variables to convert to dummies
+nonNumericVars <- select_if(st_drop_geometry(finalData), Negate(is.numeric))
+
+# convert categorical variables to dummies
+dummyVars <- dummy.data.frame(nonNumericVars)
+
+# add log(price) column to dummies
+dummiesWithLogPrice <- cbind(finalData$logPrice, dummyVars)
+
+# create dummy variable correlation matrix as data frame
+dummyCorDF <- as.data.frame(as.table(cor(dummiesWithLogPrice)))
+
+# review dummy variables most correlated with price
+dummyCorLogPrice <- filter(dummyCorDF, Var1 == "finalData$logPrice")%>%
+  rename(Cor = Freq)
+
+hoodDummyVars <- dummyVars %>%
+  select(starts_with('neighborhood'))
+
+# combine numeric and dummy variables
+allVars <- cbind(numericVars, dummyVars)
+
+
+
+
+# generate correlation matrix chart for dummy variables
+ggcorrplot(
+  round(cor(dummyVars), 1),
+  p.mat = cor_pmat(dummyVars),
+  show.diag = TRUE,
+  colors = c("#25cb10", "#ffffff", "#fa7800"),
+  type = "lower",
+  insig = "blank"
+) +
+  labs(title = "Correlation across categorical dummy variables")
+
+
+```
+
+
+3. OLS Regression
+
+```{r OLS regression, echo= F, warning=F, error=F, message=F}
+
+# 3. LINEAR  and variable exclusion
+
+finalDataReg <- lm(logPrice ~ .,
+                 data = st_drop_geometry(finalData) %>%
+                   dplyr::select(-price, -MUSA_ID, -toPredict))
+summary(finalDataReg)
+
+```
+
+
+4. Modeling
+
+```{r Modeling, echo= F, warning=F, error=F, message=F}
+
+# 4. MODEL ESTIMATION & VALIDATION
+
+# Filter out outliers and apparent computing errors
+finalData <- finalData %>% filter(!MUSA_ID %in% c(8735,1397,5258))
+
+# model 2
+d2n <- finalData %>%
+  dplyr::select(MUSA_ID,
+                price,
+                logPrice,
+                nbrRooms,
+                qualityNum,
+                builtEra,
+                basementDummy,
+                garageDummy,
+                designCodeDscr,
+                extWall,
+                starts_with('neigh'),
+                starts_with('PCTHHMI'),
+                PCTVacant,
+                PCT25yrHighEdu,
+                floodRisk,
+                wildfireHazard,
+                toPredict,
+                geometry)
+
+# model 3
+d3n <- finalData %>%
+  dplyr::select(MUSA_ID,
+                price,
+                logPrice,
+                nbrRooms,
+                qualityNum,
+                builtEra,
+                basementDummy,
+                garageDummy,
+                designCodeDscr,
+                extWall,
+                starts_with('neigh'),
+                starts_with('PCTHHMI'),
+                PCTVacant,
+                PCT25yrHighEdu,
+                floodRisk,
+                toPredict,
+                geometry) 
+
+
+RegA <- lm(logPrice ~ .,
+           data = (st_drop_geometry(d3n)) %>%
+             dplyr::select(-price, -MUSA_ID, -toPredict))
+summary(RegA)
+
+
+```
+
+
+
+
+```{r Model training, echo= F, warning=F, error=F, message=F}
+
+# PLUG IN MODEL
+regData <- d3n # Update with tested model
+
+# Remove the toPredict homes
+regData <- regData %>%
+  filter(toPredict != 1)
+
+
+# Split data into training (75%) and validation (25%) sets
+inTrain <- createDataPartition(
+  y = paste(
+    regData$extWall,
+    regData$floodRisk,
+    regData$neighborhood
+  ),
+  p = 0.75, list = FALSE)
+
+homes.training <- regData[inTrain,]
+homes.test <- regData[-inTrain,]
+
+# Estimate model on training set
+reg.training <- lm(logPrice ~ .,
+                   data = st_drop_geometry(regData) %>%
+                     dplyr::select(-toPredict, -MUSA_ID, -price)
+)
+summary(reg.training)
+
+
+
+# Calculate MAE and MAPE
+homes.test <- homes.test %>%
+  mutate(
+    Regression = "Neighborhood effect",
+    logPrice.Predict = (predict(reg.training, homes.test)),
+    price.Predict = exp(logPrice.Predict),
+    price.Error = price.Predict - price,
+    price.AbsError = abs(price.Predict - price),
+    price.APE = (abs(price.Predict - price)/price.Predict)    
+  )
+
+mean(homes.test$price.AbsError) # MAE
+mean(homes.test$price.APE)      # MAPE
+
+# Plot distribution of prediction errors
+
+hist(homes.test$price.Error, breaks = 50) 
+hist(homes.test$price.AbsError, breaks = 50)
+hist(homes.test$price.APE, breaks = 50)
+
+
+```
+
+
+```{r k fold cross validation, echo= F, warning=F, error=F, message=F}
+
+# Perform k-fold cross-validation using caret package
+fitControl <- trainControl(method = "cv", number = 100)
+set.seed(825)
+
+
+# k-fold model training
+reg.cv <- 
+  train(
+    logPrice ~ .,
+    data = st_drop_geometry(homes.training) %>%
+      dplyr::select(-toPredict, -MUSA_ID, -price),
+    method = "lm", 
+    trControl = fitControl, 
+    na.action = na.omit
+  )
+reg.cv
+
+# Plot distribution of MAE
+allMAE <- reg.cv$resample[,3]
+hist(allMAE, breaks = 21)
+
+```
+
+
+
+5. Spatial Lag [SIMPLIFY TERM]
+
+```{r Spatial lag test, echo= F, warning=F, error=F, message=F}
+
+# 5. SPATIAL LAG
+
+coords.test <-  st_coordinates(homes.test) 
+# Take value of neighbors for weighted matrix
+neighborList.test <- knn2nb(knearneigh(coords.test, 5))
+# Create spatial weight matrix
+spatialWeights.test <- nb2listw(neighborList.test, style="W")
+
+z <- homes.test %>%
+  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
+
+z <- ggplot(z, aes(x=lagPriceError, y=price.Error))
+z + geom_point()
+
+
+# Run the actual Moran's I
+moranTest <- moran.mc(homes.test$price.Error, 
+                      spatialWeights.test, nsim = 999)
+
+
+# Plot of the Observed Moran's I and the permutations Moran's I distribution
+ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
+  geom_histogram(binwidth = 0.01) +
+  geom_vline(aes(xintercept = moranTest$statistic), colour = "#FA7800",size=1) +
+  scale_x_continuous(limits = c(-1, 1)) +
+  labs(title="Observed and permuted Moran's I",
+       subtitle= "Observed Moran's I in orange",
+       x="Moran's I",
+       y="Count") +
+  plotTheme()
+
+```
+
+
+```{r Spatial lag test summary, echo= F, warning=F, error=F, message=F}
+
+left_join(
+  st_drop_geometry(homes.test) %>%
+    group_by(neighborhood) %>%
+    summarize(meanPrice = mean(price, na.rm = T)),
+  mutate(homes.test, predict.fe = 
+           predict(lm(price ~ neighborhood, data = homes.test), 
+                   homes.test)) %>%
+    st_drop_geometry %>%
+    group_by(neighborhood) %>%
+    summarize(meanPrediction = mean(predict.fe))) %>%
+  kable() %>% kable_styling()
+
+```
+
+
+6. Neighborhood effects
+
+```{r Generalizability Spatial, echo= F, warning=F, error=F, message=F}
+
+# 6. NEIGHBORHOOD EFFECTS
+# Calculate a baseline regression without the neighborhoods
+
+reg.nhood <- lm(logPrice ~ ., data = as.data.frame(st_drop_geometry(homes.training)) %>% 
+                  dplyr::select(-toPredict, -MUSA_ID, -price, -neighborhood))
+summary(reg.nhood)
+
+
+st_drop_geometry(regData)
+homes.test.nhood <-
+  homes.test %>%
+  mutate(Regression = "Baseline regression",
+         logPrice.Predict = predict(reg.nhood, homes.test), 
+         price.Predict = exp(logPrice.Predict),
+         price.Error = price.Predict- price,
+         price.AbsError = abs(price.Predict- price),
+         price.APE = (abs(price.Predict- price)) / price) 
+
+mean(homes.test.nhood$price.AbsError) # MAE
+mean(homes.test.nhood$price.APE)      # MAPE
+
+
+bothRegressions <- rbind(
+  dplyr::select(homes.test, starts_with("price"), Regression, neighborhood) %>%
+  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error)),
+  dplyr::select(homes.test.nhood, starts_with("price"), Regression, neighborhood) %>%
+  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
+  )
+
+# Produce a table comparing non-neighborhood effects of a 'Baseline' regression
+st_drop_geometry(bothRegressions) %>%
+  gather(Variable, Value, -Regression, -neighborhood) %>%
+  filter(Variable == "price.AbsError" | Variable == "price.APE") %>%
+  group_by(Regression, Variable) %>%
+    summarize(meanValue = mean(Value, na.rm = T)) %>%
+    spread(Variable, meanValue) %>%
+    kable() %>% kable_styling()
+
+
+```
+
+
+
+
+
+```{r Neighborhood effects, echo= F, warning=F, error=F, message=F}
+
+
+bothRegressions %>%
+  dplyr::select(price.Predict, price, Regression) %>%
+    ggplot(aes(price, price.Predict)) +
+  geom_point() +
+  stat_smooth(aes(price, price), 
+             method = "lm", se = FALSE, size = 1, colour="#FA7800") + 
+  stat_smooth(aes(price.Predict, price), 
+              method = "lm", se = FALSE, size = 1, colour="#25CB10") +
+  facet_wrap(~Regression) +
+  labs(title="Predicted sale price as a function of observed price",
+       subtitle="Orange line represents a perfect prediction; Green line represents prediction") +
+  plotTheme()
+
+
+# set neighborhood geometry
+nhoods <- boulderTracts %>%
+  rename(neighborhood = geounit[idx])
+
+st_drop_geometry(bothRegressions) %>%
+  group_by(Regression, neighborhood) %>%
+  summarize(mean.MAPE = mean(price.APE, na.rm = T)) %>%
+  ungroup()%>%
+  left_join(nhoods) %>%
+  st_sf() %>%
+  ggplot() + 
+    geom_sf(aes(fill = mean.MAPE)) +
+    geom_sf(data = bothRegressions, colour = "black", size = .5) +
+    facet_wrap(~Regression) +
+    scale_fill_gradient(low = palette5[1], high = palette5[5],
+                        name = "MAPE") +
+    labs(title = "Mean test set MAPE by neighborhood") +
+    labs(title = "Census tracts") +
+    mapTheme()
+
+
+```
+
+
+
+
+7. Generalizability [Simplify term, maybe in question form?]
+
+```{r Generalizability Demographic, echo= F, warning=F, error=F, message=F}
+
+# 7. GENERALIZABILITY TEST
+
+# Replace with NEW INCOME DATA
+incomeTest <- blocks %>%
+  select(
+         PCTHHMI000,
+         PCTHHMI010,
+         PCTHHMI015,
+         PCTHHMI020,
+         PCTHHMI025,
+         PCTHHMI030,
+         PCTHHMI035,
+         PCTHHMI040,
+         PCTHHMI045,
+         PCTHHMI050,
+         PCTHHMI060,
+         PCTHHMI075,
+         PCTHHMI100,
+         PCTHHMI125,
+         PCTHHMI150,
+         PCTHHMI200
+         ) %>%
+  mutate(lowIncome =
+           PCTHHMI000+
+           PCTHHMI010+
+           PCTHHMI015+
+           PCTHHMI020+
+           PCTHHMI025+
+           PCTHHMI030+
+           PCTHHMI035+
+           PCTHHMI040+
+           PCTHHMI045+
+           PCTHHMI050+
+           PCTHHMI060+
+           PCTHHMI075,
+         highIncome=
+           PCTHHMI100,
+           PCTHHMI125,
+           PCTHHMI150,
+           PCTHHMI200) %>%
+  mutate(incomeContext = ifelse((lowIncome) > .5, "Low Income", "High Income")) %>%
+  select(-starts_with('PCTHHMI'), -lowIncome, -highIncome)
+
+
+# Plot the income groups division
+
+ggplot() + geom_sf(data = na.omit(incomeTest), aes(fill = incomeContext)) +
+    scale_fill_manual(values = c(palette5[4], palette5[3], palette5[2]), name="Income Context") +
+    labs(title = "Income Context") +
+    geom_sf(data = bothRegressions, colour = palette5[5], size = .25) +
+    mapTheme() + theme(legend.position="bottom")
+
+
+```
+
+
+```{r Generalizabiliy test table, echo= F, warning=F, error=F, message=F}
+
+st_join(bothRegressions, incomeTest) %>% 
+  group_by(Regression, incomeContext) %>%
+  summarize(mean.MAPE = scales::percent(mean(price.APE, na.rm = T))) %>%
+  st_drop_geometry() %>%
+  spread(incomeContext, mean.MAPE) %>%
+  kable(caption = "Test set MAPE by household income context") %>% kable_styling()
+
+```
+
+
+8. Conclusions
+
+
+
+
+
