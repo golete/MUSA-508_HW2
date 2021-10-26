@@ -220,21 +220,23 @@ homeData <- testRecodes %>%
 # D1. wildfire history
 # TODO: add directly to finalData without merging?
 
-# load wildfire polygon data, limited to fires in the last 20 years
+# load wildfire polygon data, limited to fires in last 20 years
 wildfires <-
   st_read('Wildfire_History.geojson') %>%
   filter(ENDDATE > "2001-10-19 00:00:00") %>%
   select(NAME, geometry) %>%
   st_transform(boulderCRS)
 
-# calculate wildfires within two-mile radius of each home
+# get home point data
 wildfireData <- homeIDs
 
+# count wildfires within two-mile radius
 wildfireData$wildfireHistory <- st_buffer(homeIDs, 3219) %>% # 3219 m = 2 miles
   aggregate(mutate(wildfires, counter = as.numeric(1)), ., length) %>%
   pull(counter) %>%
   replace_na(., 0)
 
+# prepare for joining to main data set
 wildfireData <- wildfireData %>%
   st_drop_geometry()
 

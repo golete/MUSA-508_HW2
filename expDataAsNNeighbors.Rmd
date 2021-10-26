@@ -24,7 +24,7 @@ marijuana <- st_read("Marijuana_Establishments.geojson") %>%
   st_sf() %>%
   st_transform(boulderCRS)
 
-marijuanaData <- subdata %>%
+marijuanaData <- homeIDs %>%
   mutate(dispensaries = nn_function(st_coordinates(.), st_coordinates(marijuana), 1)) %>%
   st_drop_geometry()
 

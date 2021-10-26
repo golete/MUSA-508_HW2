@@ -5,7 +5,7 @@ ggplot() +
   # geom_sf(data = wildfires, color = "transparent", fill = "#c4a499", alpha = 0.4) +
   geom_sf(data = testData, aes(color = wildfireHistory), alpha = 0.7, size = 1.5) +
   # geom_sf(data = countyLimits, fill = "transparent", color = "black") +
-  scale_color_viridis_c(option = "B", breaks = c(0, 2, 4, 6, 8)) +
+  scale_color_viridis_c("Fires", option = "B", breaks = c(0, 2, 4, 6, 8)) +
   # scale_alpha_continuous(range = c(0.3, 0.7), guide = "none") +
   # scale_size_continuous(range = c(1, 3), breaks = c(0, 2, 4, 6, 8), guide = "none") +
   # guides("Wildfires", color = guide_legend(), size = guide_legend()) +
