@@ -10,8 +10,6 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F)
 
-options(knitr.kable.NA = "")
-
 # load libraries
 # TODO: check if using gridExtra, jtools, ggstance
 library(tidyverse)
@@ -58,6 +56,12 @@ plotTheme <- function() {
     plot.subtitle = element_text(face = "italic"),
     plot.caption = element_text(hjust = 0))
 }
+
+# avoid scientific notation
+options(scipen = 999)
+
+# avoid NA values in kable charts
+options(knitr.kable.NA = "")
 ```
 
 # Introduction
@@ -117,8 +121,12 @@ homeRecodes <- data %>%
     extWall2 = if_else(is.na(ExtWallSec), "None", as.character(ExtWallDscrSec)),
     # recode missing interior wall values
     intWall = if_else(is.na(IntWall), "Missing", as.character(IntWallDscr)),
-    # recode missing roof cover values
-    roofType = if_else(is.na(Roof_Cover), "Missing", as.character(Roof_CoverDscr)),
+    # recode missing roof cover values and combine those with few observations
+    roofType = case_when(
+      is.na(Roof_Cover) ~ "Missing",
+      Roof_Cover %in% c(1220, 1240, 1250, 1260, 1290) ~ "Other",
+      TRUE ~ as.character(Roof_CoverDscr)
+    ),
     # recode quality as numeric variable
     qualityNum = case_when(
       qualityCode == 10 ~ 1, # QualityCodeDscr == "LOW "
@@ -405,6 +413,30 @@ censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
 # D. --- ADDITIONAL OPEN DATA ---
 
 # TODO: add open data
+
+# D2. Wildfire history
+# TODO: add directly to finalData without merging?
+
+# load wildfire polygon data, limited to fires in last 20 years
+wildfires <-
+  st_read('Wildfire_History.geojson') %>%
+  filter(ENDDATE > "2001-10-19 00:00:00") %>%
+  select(NAME, geometry) %>%
+  st_transform(boulderCRS)
+
+# get home point data
+wildfireData <- homeIDs
+
+# count wildfires within two-mile radius
+wildfireData$wildfireHistory <- st_buffer(homeIDs, 3219) %>% # 3219 m = 2 miles
+  aggregate(mutate(wildfires, counter = as.numeric(1)), ., length) %>%
+  pull(counter) %>%
+  replace_na(., 0)
+
+# prepare for joining to main data set
+wildfireData <- wildfireData %>%
+  st_drop_geometry()
+
 
 # E. --- COMBINE ALL ---
 

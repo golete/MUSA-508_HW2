@@ -188,8 +188,7 @@ homeRecodes <- data %>%
     ),
     # calculate total rooms, including baths
     nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths/2),
-    # calculate age and effective age (time since last major renovation)
-    # age = year - builtYear,
+    # effective age (time since last major renovation)
     # effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
   )
   
