@@ -10,13 +10,14 @@ output:
 knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F)
 
 # load libraries
+# TODO: check if using gridExtra, jtools, ggstance
 library(tidyverse)
 library(tidycensus)
 library(sf)
-library(dummies)
+library(dummies) # TODO: probably remove along with dummy correlation code
 library(spdep)
 library(caret)
-library(ckanr)
+library(ckanr) # TODO: probably remove unless adding data with CKAN API
 library(FNN)
 library(grid)
 library(gridExtra)
@@ -25,6 +26,7 @@ library(kableExtra)
 library(jtools)     # for regression model plots
 library(ggstance) # to support jtools plots
 library(mapview)
+library(stargazer)
 
 # load book functions
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
@@ -39,6 +41,32 @@ options(scipen = 999)
 g <- glimpse
 m <- mapview
 palette5 <- c("#f0f9e8","#bae4bc","#7bccc4","#139ed1","#0868ac")
+
+# set map styling options
+mapTheme <- function() {
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(face = "italic"),
+    plot.caption = element_text(hjust = 0)
+  )
+}
+
+# set plot styling options
+plotTheme <- function() {
+  theme(
+    axis.ticks = element_blank(),
+#    axis.title = element_blank(),
+    legend.title = element_blank(),
+    panel.background = element_blank(),
+    panel.grid.major = element_line(color = "gray75", size = 0.1),
+    panel.grid.minor = element_line(color = "gray75", size = 0.1),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(face = "italic"),
+    plot.caption = element_text(hjust = 0))
+}
 ```
 
 ## 0. Intro [PLACEHOLDER]
@@ -76,6 +104,8 @@ data <- st_read("studentData.geojson") %>%
 # recode missing data and engineered features
 homeRecodes <- data %>%
   mutate(
+    # change year to factor from float
+    year = as.factor(year),
     # calculate log of price to normalize positive skew
     logPrice = log(price),
     # recode missing construction material values
@@ -84,16 +114,12 @@ homeRecodes <- data %>%
       ConstCode == 300 ~ "Unspecified",
       ConstCode > 300 ~ as.character(ConstCodeDscr)
     ),
-    # recode missing basement values
-    basement = if_else(bsmtType == 0, "None", as.character(bsmtTypeDscr)),
-    # recode missing car storage values
-    carStorage = if_else(carStorageType == 0, "None", as.character(carStorageTypeDscr)),
-    # recode missing a/c values
-    acType = case_when(
-      is.na(Ac) ~ "None",
-      Ac == 200 ~ "Unspecified", # Code with no description
-      Ac >= 210 ~ as.character(AcDscr) # "Attic Fan", "Evaporative Cooler", "Whole House" unchanged
-    ),
+    # recode basement as dummy
+    hasBasement = if_else(bsmtType == 0, 0, 1),
+    # recode car storage as garage dummy
+    hasGarage = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0),
+    # recode a/c as dummy, excluding fans, evaporative coolers, and unspecified
+    hasAC = replace_na(if_else(Ac == 210, 1, 0), 0),
     # recode missing heating values
     heatingType = case_when(
       is.na(Heating) ~ "None",
@@ -156,19 +182,18 @@ homeRecodes <- data %>%
     ),
     # recode section_num as manySections
     manySections = if_else(section_num > 1, 1, 0),
+    # recode design to remove all caps for table
+    designType = if_else(
+      designCode == "0120", "Multi-Story Townhouse", as.character(designCodeDscr)
+    ),
     # calculate total rooms, including baths
     nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths/2),
-    # separate quarter sold from year sold
-    quarterSold = str_sub(year_quarter, -1, -1)
     # calculate age and effective age (time since last major renovation)
     # age = year - builtYear,
     # effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
-    # try simpler basement and garage categories
-    # basementDummy = if_else(bsmtType == 0, 0, 1),
-    # garageDummy = if_else(str_detect(carStorageTypeDscr, "GARAGE"), 1, 0)
   )
   
-# TODO: take these out? they don't seem to be used anywhere else
+# TODO: remove? did not see used anywhere else
 varsAnum <- 
   c('price',
   'logPrice',
@@ -176,6 +201,7 @@ varsAnum <-
   'toPredict',   
   'geometry')
 
+# TODO: remove? did not see used anywhere else
 varsAcat <- 
   c('TotalFinishedSF',
   'nbrRooms',
@@ -250,11 +276,13 @@ homeIDs <- data %>%
 
 # TODO: delete if we don't actually use
 countyLimits <- st_read('County_Boundary.geojson') %>%
-  select(OBJECTID, geometry)
+  select(OBJECTID, geometry) %>%
+  st_transform(boulderCRS)
 
 # TODO: delete if we don't actually use
 munis <- st_read('Municipalities.geojson') %>%
-  select(ZONEDESC, geometry)
+  select(ZONEDESC, geometry) %>%
+  st_transform(boulderCRS)
 # CRS: EPSG: 4326, WGS84, metres
 
 
@@ -268,6 +296,7 @@ zones <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
   rename(SUBCOMMUNITY = ZONEDESC) %>%
   summarize(geometry = st_union(geometry))
 
+# TODO: figure out if used; delete otherwise
 # Subset the generic zones as a separate map just if needed
 genericZones <- c('Business',
                   'Commercial',
@@ -607,7 +636,8 @@ st_drop_geometry(finalData) %>%
     geom_point(size = 0.5) +
     geom_smooth(method = "lm", color = "#FA7800") +
     facet_wrap(~Variable, ncol = 4, scales = "free") +
-    labs(title = "Price as a function of continuous variables")
+    labs(title = "Price as a function of continuous variables") +
+  plotTheme()
 
 st_drop_geometry(finalData) %>% 
   dplyr::select(logPrice, quarterSold) %>%
@@ -649,7 +679,8 @@ ggcorrplot(
    insig = "blank",
    lab =T
 ) +
-   labs(title = "Correlation across numeric variables")
+   labs(title = "Correlation across numeric variables") +
+  plotTheme()
 
 ggcorrplot(
    round(cor(numericVars), 1),
@@ -659,7 +690,8 @@ ggcorrplot(
    type = "lower",
    insig = "blank"
 ) +
-   labs(title = "Correlation across numeric variables")
+   labs(title = "Correlation across numeric variables") +
+  plotTheme()
 
 
 # select non-numeric variables to convert to dummies
@@ -796,7 +828,8 @@ summary(RegA)
 regData <- d3n # Update with tested model
 
 # Remove the toPredict homes
-regData <- regData
+regData <- regData %>%
+  dplyr::select(toPredict == 0)
 
 # Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
@@ -1022,24 +1055,54 @@ st_drop_geometry(bothRegressions) %>%
 # 7. GENERALIZABILITY TEST
 
 # Replace with NEW INCOME DATA
+incomeTest <- blockGroups %>%
+  select(
+         pctIncome000,
+         pctIncome010,
+         pctIncome015,
+         pctIncome020,
+         pctIncome025,
+         pctIncome030,
+         pctIncome035,
+         pctIncome040,
+         pctIncome045,
+         pctIncome050,
+         pctIncome060,
+         pctIncome075,
+         pctIncome100,
+         pctIncome125,
+         pctIncome150,
+         pctIncome200
+         ) %>%
+  mutate(lowIncome =
+           pctIncome000+
+           pctIncome010+
+           pctIncome015+
+           pctIncome020+
+           pctIncome025+
+           pctIncome030+
+           pctIncome035+
+           pctIncome040+
+           pctIncome045+
+           pctIncome050+
+           pctIncome060+
+           pctIncome075,
+         highIncome=
+           pctIncome100,
+           pctIncome125,
+           pctIncome150,
+           pctIncome200) %>%
+  mutate(incomeContext = ifelse((lowIncome) > .5, "Low Income", "High Income")) %>%
+  select(-starts_with('pctIncome'), -lowIncome, -highIncome)
 
-# povLine <- tracts %>%
-#   select(PCTbel125pov,
-#          PCT125185pov,
-#          PCT185500pov,
-#          PCTabo500pov) %>%
-#   mutate(yesWealth= PCTabo500pov,
-#          notWealth = PCTbel125pov+PCT125185pov+PCT185500pov,
-#          totalPop = notWealth + yesWealth) %>%
-#   mutate(percentWealth = yesWealth / totalPop,
-#          povContext = ifelse(percentWealth > .5, "Majority Wealthy", "Majority Non-Wealthy"))
-# 
-# 
-# grid.arrange(ncol = 1,
-#   ggplot() + geom_sf(data = na.omit(povLine), aes(fill = povContext)) +
-#     scale_fill_manual(values = c("#25CB10", "#FA7800"), name="Income Context") +
-#     labs(title = "Income Context") +
-#     mapTheme() + theme(legend.position="bottom"))
+
+# Plot the income groups division
+grid.arrange(ncol = 1,
+  ggplot() + geom_sf(data = na.omit(incomeTest), aes(fill = incomeContext)) +
+    scale_fill_manual(values = c(palette5[4], palette5[3], palette5[2]), name="Income Context") +
+    #scale_discrete(limits=dat$V1) +
+    labs(title = "Income Context") +
+    mapTheme() + theme(legend.position="bottom"))
 
 m(wholeFoods)
 
@@ -1048,13 +1111,12 @@ m(wholeFoods)
 
 ```{r Generalizabiliy tables}
 
-
-# st_join(bothRegressions, povLine) %>% 
-#   group_by(Regression, povContext) %>%
-#   summarize(mean.MAPE = scales::percent(mean(price.APE, na.rm = T))) %>%
-#   st_drop_geometry() %>%
-#   spread(povContext, mean.MAPE) %>%
-#   kable(caption = "Test set MAPE by neighborhood racial context")
+st_join(bothRegressions, incomeTest) %>% 
+  group_by(Regression, incomeContext) %>%
+  summarize(mean.MAPE = scales::percent(mean(price.APE, na.rm = T))) %>%
+  st_drop_geometry() %>%
+  spread(incomeContext, mean.MAPE) %>%
+  kable(caption = "Test set MAPE by household income context") %>% kable_styling()
 
 
 ```
