@@ -467,7 +467,7 @@ blockGroupBoundaries <- blockGroups %>%
 censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
   st_drop_geometry() %>%
   left_join(., blockGroups, by='block') %>%
-  select(-NAME, -geometry)
+  select(-NAME, -geometry, -block)
 
 # import tract boundaries as proxy for neighborhoods
 tracts <- 
