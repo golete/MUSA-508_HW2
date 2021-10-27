@@ -393,7 +393,7 @@ boulderBlocks <- blocks %>%
 censusData <- st_join(subdata, boulderBlocks) %>%
   st_drop_geometry() %>%
   left_join(., blocks, by='block') %>%
-  select(-NAME, -geometry)
+  select(-NAME, -geometry, -block)
 
 # Get the Tracts for defining the neighborhoods
 
@@ -411,6 +411,13 @@ boulderTracts <-
 
 tractsData <- st_join(subdata, boulderTracts)%>%
   st_drop_geometry()
+
+z <- data %>% select(price, geometry)%>%
+  filter(price < 5000000)
+
+m(z)
+
+
 
 ```
 
@@ -734,8 +741,7 @@ regData <- d3n # Update with tested model
 
 # Remove the toPredict homes
 regData <- regData %>%
-  filter(toPredict != 1)
-
+  filter(toPredict != 1) 
 
 # Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
@@ -756,8 +762,6 @@ reg.training <- lm(logPrice ~ .,
 )
 summary(reg.training)
 
-
-
 # Calculate MAE and MAPE
 homes.test <- homes.test %>%
   mutate(
@@ -767,7 +771,7 @@ homes.test <- homes.test %>%
     price.Error = price.Predict - price,
     price.AbsError = abs(price.Predict - price),
     price.APE = (abs(price.Predict - price)/price.Predict)    
-  )
+  ) %>% na.omit()
 
 mean(homes.test$price.AbsError) # MAE
 mean(homes.test$price.APE)      # MAPE
@@ -823,9 +827,15 @@ spatialWeights.test <- nb2listw(neighborList.test, style="W")
 
 z <- homes.test %>%
   mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
+zz <- ggplot(z, aes(x=lagPriceError, y=price.Error))
+zz + geom_point()
 
-z <- ggplot(z, aes(x=lagPriceError, y=price.Error))
-z + geom_point()
+x <- homes.test %>%
+  mutate(lagPrice = lag.listw(spatialWeights.test, price))
+xx <- ggplot(x, aes(x=lagPrice, y=price))
+xx + geom_point()
+
+
 
 
 # Run the actual Moran's I
