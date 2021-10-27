@@ -1,0 +1,22 @@
+
+```{r }
+
+coords.test <-  st_coordinates(homes.test) 
+# Take value of neighbors for weighted matrix
+neighborList.test <- knn2nb(knearneigh(coords.test, 5))
+# Create spatial weight matrix
+spatialWeights.test <- nb2listw(neighborList.test, style="W")
+
+z <- homes.test %>%
+  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
+zz <- ggplot(z, aes(x=lagPriceError, y=price.Error))
+zz + geom_point()
+
+x <- homes.test %>%
+  mutate(lagPrice = lag.listw(spatialWeights.test, price))
+xx <- ggplot(x, aes(x=lagPrice, y=price))
+xx + geom_point()
+
+
+```
+
