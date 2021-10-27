@@ -18,6 +18,7 @@ library(sf)
 library(spdep)
 library(caret)
 library(FNN)
+library(units)
 library(grid)
 library(gridExtra)
 library(ggcorrplot)
@@ -26,10 +27,24 @@ library(jtools)     # for regression model plots
 library(ggstance) # to support jtools plots
 library(mapview)
 library(stargazer)
-library(vtable)
+# library(vtable)
+
+# load book functions
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
 # set Census API key
 census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
+
+# set ACS year and geography
+year <- 2019
+state <- 08
+county <- 13
+
+# set shortcuts
+# TODO: check if using
+g <- glimpse
+m <- mapview
+palette5 <- c("#f0f9e8","#bae4bc","#7bccc4","#139ed1","#0868ac")
 
 # set map styling options
 mapTheme <- function() {
@@ -68,11 +83,31 @@ options(knitr.kable.NA = "")
 
 > What is the purpose of this project? Why should we care about it? What makes this a difficult exercise? What is your overall modeling strategy? Briefly summarize your results.
 
+The Zestimate, [Zillow’s algorithm for predicting home values](https://www.zillow.com/how-much-is-my-home-worth/), has increasingly become the predominant reference for buying and selling houses in the real estate market, often being mistaken for an appraisal tool. Consequently, inaccuracies in their model predictions can, now more than ever, [critically affect homeowner’s personal equity](https://www.washingtonpost.com/realestate/zillow-faces-lawsuit-over-zestimate-tool-that-calculates-a-houses-worth/2017/05/09/b22d0318-3410-11e7-b4ee-434b6d506b37_story.html) and undermine reliability in the tool.
+
+Our goal was to develop a Machine Learning pipeline for predicting house prices that is enhanced with additional layers of data, including local features specific to Boulder, Colorado, while also being tested and adjusted for spatial and socio-economic biases to ensure its generalizability, and thus giving it more predictive power.
+
+However, this task presents two important challenges. First, we are not taking into account any previous sales or tax assessment data that could better inform our model. Second, we are conducting this analysis in Boulder County in Colorado, a county that is not itself a coherent urban unit but rather is composed of Denver’s outer suburbs, medium-sized towns and almost half of its area covered in forest. Furthermore, Boulder is a very homogeneous and particular county, with a 91% white population, a median income of \$81,390 (compared to \$62,843 nation-wide) and 61% of people 25 or older with higher education (compared to 31% nation-wide) in 2019 estimates.
+
+We implemented a Linear Regression supervised Machine Learning model for predicting house prices (explained in more detail in part 3). We built up a pipeline where we can input data (we have previously cleaned and wrangled), evaluate it, take it out or leave it depending on its usefulness, process it and test it on home samples we have set apart for predicting, while getting metrics on the current effectiveness of the model. Each version of the model was saved separately and its effectiveness logged, so it can be plugged in or out as needed. This process can be then repeated many times until the best possible is obtained.
+
+> Briefly summarize your results
+
 # Data
 
 ## Data Collection
 
 > Briefly describe your methods for gathering the data.
+
+We structured the data gathering process into five groups, according to their origin and function:
+
++ A. The base home features provided by the client, including the price dependent variable.
++ B. Boundaries data, related to county limits, municipalities, neighborhoods, zoning, etc.
++ C. Census data from the 2019 ACS, including home ownership and vacancy rates, education, income and demographics on the block group level.
++ D. Other open data, including FEMA, municipal services or amenities and crime data, if pertinent.
++ E. “Experimental” data, meaning variables like location of recreational cannabis dispensaries or distance to major highways, that are not conventionally associated with house prices.
+
+Given the richness of data from A and C, the data wrangling process focused on selecting **what data is relevant** for predicting house prices and which new variables could be produced from this raw data, and the results were ready to use. On the other hand, B and D were conditioned by **what data is available** and involved a more intensive understanding of the data, determining parameters on how to measure its possible effects on home prices. Data in the E group was treated more akin to that of B and D, but with a looser expectation of what its effects could be.
 
 ### A. Home value data
 
@@ -179,11 +214,6 @@ homeRecodes <- data %>%
     designType = if_else(
       designCode == "0120", "Multi-Story Townhouse", as.character(designCodeDscr)
     ),
-    # calculate total rooms, including baths
-    nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths/2),
-    # calculate age and effective age (time since last major renovation)
-    # age = year - builtYear,
-    # effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
   )
 
 # create clean data frame for modeling
@@ -237,18 +267,26 @@ homeData <- homeRecodes %>%
 homeIDs <- data %>%
   dplyr::select(MUSA_ID, geometry)
 ```
-
-### B. "Neighborhood" boundaries
+### B. Boundaries to represent neighborhoods
 
 ```{r data: neighborhoods}
-# B. --- NEIGHBORHOOD BOUNDARIES ---
+# B. --- BOUNDARY DATA ---
 
-# B1. Census tracts
+# import county limits for later reference
+countyLimits <- st_read('County_Boundary.geojson') %>%
+  select(OBJECTID, geometry) %>%
+  st_transform(boulderCRS)
 
-# set Census data import parameters
-year <- 2019
-state <- 08
-county <- 13
+# import municipality limits for later reference
+munis <- st_read('Municipalities.geojson') %>%
+  select(ZONEDESC, geometry) %>%
+  st_transform(boulderCRS)
+
+# B1. "Neighborhoods" created from open data
+# TODO: add other neighborhood code
+
+
+# B2. Census tracts
 
 # import Census tract boundaries as proxy for neighborhoods
 # TODO: also import median income here for generalizability test later on?
@@ -270,9 +308,6 @@ tractsData <- st_join(homeIDs, tracts) %>%
   dplyr::select(-medianIncome) %>%
   st_drop_geometry()
 
-# B2. "Neighborhoods" created from open data
-
-# TODO: add other neighborhood code
 ```
 
 ### C. American Community Survey demographic and housing data
@@ -313,6 +348,8 @@ acsVars <- c("B02001_001E", # race: total
            'B19001_015E', # household income: $125-150k
            'B19001_016E', # household income: $150-200k
            'B19001_017E') # household income: $200 or more
+
+# TODO: probably get rid of <$100k income group; highly colinear
 
 # import variables from ACS 2019 5-year
 blockGroups <- 
@@ -406,15 +443,12 @@ censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
 
 ```
 
-### D. Additional open data
+### D. Climate risk-related open data
 
-
-```{r data: combined}
+```{r data: climate risk}
 # D. --- ADDITIONAL OPEN DATA ---
 
-# TODO: add open data
-
-# D2. Wildfire history
+# D1. Wildfire history
 # TODO: add directly to finalData without merging?
 
 # load wildfire polygon data, limited to fires in last 20 years
@@ -437,13 +471,89 @@ wildfireData$wildfireHistory <- st_buffer(homeIDs, 3219) %>% # 3219 m = 2 miles
 wildfireData <- wildfireData %>%
   st_drop_geometry()
 
+# D2. Flood risk
+
+# read in flood maps
+floodplains <- 
+  st_read('Floodplain_-_BC_Regulated.geojson') %>%
+  dplyr::select(FLD_ZONE, geometry) %>%
+  st_transform(boulderCRS)
+  
+
+# recode flood risk
+floodRecode <- st_join(homeIDs, floodplains) %>%
+  mutate(
+    floodRisk = case_when(
+      is.na(FLD_ZONE) ~ 0,
+      FLD_ZONE == "X" ~ 1,
+      str_detect(FLD_ZONE, "A") ~ 2
+    )
+  )
+  
+# save data
+floodData <- floodRecode %>%
+  dplyr::select(-FLD_ZONE) %>%
+  st_drop_geometry()
+```
+
+### E. Experimental open data
+
+```{r data: experimental open data}
+# D3. Distance to recreational cannabis dispensaries
+dispensaries <- st_read("Marijuana_Establishments.geojson") %>%
+  filter(str_detect(Description, "Store")) %>%
+  dplyr::select(OBJECTID, Type, geometry) %>%
+  st_sf() %>%
+  st_transform(boulderCRS)
+
+dispensaryData <- homeIDs %>%
+  mutate(dispensaryDistance = nn_function(st_coordinates(.), st_coordinates(dispensaries), 1)) %>%
+  st_drop_geometry()
+
+# D4. Distance to Whole Foods Markets stores
+
+# read in raw address data
+wholeFoodsRaw <- st_read("wholefoodsmarkets_boulderCO.csv")
+
+# transform to sf object
+wholeFoods <- st_as_sf(wholeFoodsRaw, coords = c("lon", "lat"), crs = 4326) %>%
+  dplyr::select(ID, geometry) %>%
+  st_sf() %>%
+  st_transform(boulderCRS)
+
+# calculate nearest neighbor distance
+wholeFoodsData <- homeIDs %>%
+  mutate(wholeFoodsDistance = nn_function(st_coordinates(.), st_coordinates(wholeFoods), 1)) %>%
+  st_drop_geometry()
+
+# D3. Distance to Highways
+
+# read in state highway data
+coloradoHighways <- st_read('HighwaysByFunctionalClass.geojson') %>%
+  dplyr::select(OBJECTID, geometry) %>%
+  st_transform(boulderCRS) %>%
+  # crop to roads in or near Boulder County
+  st_crop(.,st_buffer(countyLimits, 8045)) %>%
+  # merge features to avoid distance matrix
+  st_union(.)
+
+# calculate distance from highways and save
+highwayData <- homeIDs %>%
+  mutate(highwayDistance = log(drop_units(st_distance(., coloradoHighways)))) %>%
+  st_drop_geometry()
 
 # E. --- COMBINE ALL ---
 
-finalData <- left_join(homeData, tractsData) %>%
-  left_join(., censusData)
+finalData <- left_join(homeData, censusData) %>%
+  left_join(., wildfireData) %>%
+  left_join(., floodData) %>%
+  left_join(., dispensaryData) %>%
+  left_join(., wholeFoodsData) %>%
+  left_join(., highwayData) %>%
+  left_join(., tractsData)
 
 ```
+
 
 ## Summary Statistics
 
@@ -452,18 +562,27 @@ finalData <- left_join(homeData, tractsData) %>%
 ```{r summary statistics, results = "asis"}
 
 # TODO: label variables
-# TODO: remove columns that are not predictors (toPredict, MUSA_ID)
+# TODO: pick one of stargazer and sumtable
 
-summaryStats <- sumtable(as.data.frame(finalData), add.median = T, out = "return")
+# remove non-variable columns
+summaryStatsData <- finalData %>%
+  dplyr::select(-toPredict, -MUSA_ID) %>%
+  st_drop_geometry()
+  
+# create summary statistics data frame
+# summaryStats <- sumtable(as.data.frame(finalData), add.median = T, out = "return")
 
-summaryStats %>%
-  kbl(
-    caption = "Summary Statistics", 
-    digits = 2, 
-    format.args = list(big.mark = ","),
-    knitr.kable.NA = "*"
-  ) %>%
-  kable_classic()
+# create polished summary statistics table
+# summaryStats %>%
+#   kbl(
+#     caption = "Summary Statistics", 
+#     digits = 2, 
+#     format.args = list(big.mark = ","),
+#     knitr.kable.NA = "*"
+#   ) %>%
+#   kable_classic()
+
+stargazer(summaryStatsData, type = "html")
 
 ```
 
@@ -471,26 +590,28 @@ summaryStats %>%
 
 > Present a correlation matrix
 
-```{r correlation matrix}
+```{r correlation matrix, fig.width=8, fig.height=8}
 
 # select numeric variables
 numericVars <- select_if(st_drop_geometry(finalData), is.numeric) %>%
   dplyr::select(
     # omit for more legible chart
     -toPredict,
-    -MUSA_ID) %>%
+    -MUSA_ID,
+    -logPrice) %>%
   na.omit()
 
 # generate correlation matrix
 ggcorrplot(
    round(cor(numericVars), 1),
    p.mat = cor_pmat(numericVars),
-   show.diag = TRUE,
+   show.diag = T,
    colors = c("#25cb10", "#ffffff", "#fa7800"),
    type = "lower",
-   insig = "blank"
+   insig = "blank",
+   hc.order = T
 ) +
-   labs(title = "Correlation across numeric variables") +
+  labs(title = "Correlation across numeric variables") +
   plotTheme()
 
 
@@ -502,9 +623,10 @@ ggcorrplot(
 
 ```{r correlation scatterplots}
 
-# TODO: select variables: pctHigherEdu, pctIncomeAbove
-# TODO: combine income categories? Boulder County median household income in 2019 == $83,019
+# TODO: select four variables to plot
+correlationVars <- c("pctHigherEdu", "pctIncomeAbove200k", "pctIncomeBelow100k", "wildfireHistory", "floodRisk")
 
+# create scatterplots
 st_drop_geometry(finalData) %>%
   dplyr::select(price, starts_with("pct")) %>%
   pivot_longer(cols = !price, names_to = "Variable", values_to = "Value") %>%
@@ -512,7 +634,7 @@ st_drop_geometry(finalData) %>%
     geom_point(size = 0.5) +
     geom_smooth(method = "lm", color = "#FA7800") +
     facet_wrap(~Variable, ncol = 4, scales = "free") +
-    labs(title = "Price as a function of continuous variables") +
+    labs(title = "Price as a function of numeric variables") +
   plotTheme()
 
 ```
@@ -526,11 +648,6 @@ st_drop_geometry(finalData) %>%
 # TODO: display these side by side with gridxtra?
 
 # --- 1. sale price by Census tract ---
-
-# import county limits
-countyLimits <- st_read('County_Boundary.geojson') %>%
-  select(OBJECTID, geometry) %>%
-  st_transform(boulderCRS)
 
 # calculate mean sale price by tract
 priceByTract <- finalData %>%
@@ -566,23 +683,19 @@ ggplot() +
 
 # --- 2. individual home sale prices ---
 
-# import municipality limits
-munis <- st_read('Municipalities.geojson') %>%
-  select(ZONEDESC, geometry) %>%
-  st_transform(boulderCRS)
-
 # map individual home prices
 ggplot() +
+  geom_sf(data = countyLimits, fill = "gray99") +
   geom_sf(
     data = homeData,
-    size = 0.5,
+    size = 1,
     aes(color = price)
   ) +
+  geom_sf(data = munis, fill = "transparent", lwd = 0.5) +
   scale_color_viridis_c("Sale price",
                        direction = -1, 
                        option = "D") +
   geom_sf(data = countyLimits, fill = "transparent") +
-  geom_sf(data = munis, fill = "transparent", lwd = 0.5) +
   labs(
     title = "Spatial distribution of sale prices",
     subtitle = "Individual homes relative to county and municipality boundaries",
@@ -596,6 +709,48 @@ ggplot() +
 
 > Develop 3 maps of 3 of your most interesting independent variables.
 
+```{r spatial distribution of predictors}
+
+# map wildfires in last 20 years
+ggplot() +
+  geom_sf(data = countyLimits, fill = "gray20", color = "gray10", lwd = 0) +
+  geom_sf(data = tracts, fill = "transparent", color = "gray15") +
+  geom_sf(data = finalData, aes(color = wildfireHistory), alpha = 0.7, size = 1.5) +
+  scale_color_viridis_c("Fires", option = "B", breaks = c(0, 2, 4, 6, 8)) +
+  labs(title = "Wildfires within two miles in last 20 years",
+       subtitle = "Individual homes relative to Census tracts",
+       caption = "Figure X.X") + # TODO: number before finalizing
+  mapTheme()
+
+# TODO: try all distances logged and unlogged; make sure consistent and correctly labeled in final
+
+# map distance to dispensaries
+ggplot() +
+  geom_sf(data = countyLimits, fill = "gray98", color = "gray85", lwd = 0.5) +
+  geom_sf(data = tracts, fill = "transparent", color = "gray90") +
+  geom_sf(data = finalData, aes(color = dispensaryDistance)) +
+  scale_color_viridis_c("Distance in meters", option = "D", direction = -1) +
+  geom_sf(data = dispensaries, aes(fill = Type), size = 3, shape = 25) +
+  scale_fill_manual("", labels = "Dispensary", values = "black") +
+  labs(title = "Distance to recreational cannabis dispensary",
+       subtitle = "Individual homes with Census tracts and dispensary locations",
+       caption = "Figure X.X") + # TODO: number before finalizing
+  mapTheme()
+
+# map distance from nearest highway
+ggplot() +
+  geom_sf(data = countyLimits, fill = "gray98", color = "gray95", lwd = 0.5) +
+  geom_sf(data = st_crop(coloradoHighways, countyLimits), color = "gray90", lwd = 3) +
+  geom_sf(data = finalData, aes(color = highwayDistance)) +
+  scale_color_viridis_c("Distance in meters", option = "E") +
+  labs(title = "Distance from nearest highway",
+       subtitle = "Individual homes relative to highway network",
+       caption = "Figure X.X") +
+  mapTheme()
+
+```
+
+
 ## Additional Visualizations
 
 > Include any other maps/graphs/charts you think might be of interest.
@@ -603,6 +758,18 @@ ggplot() +
 # Methods
 
 > Briefly describe your method (remember who your audience is).
+
+Developing and refining a Machine Learning model is not a linear process but rather a cyclical one. Nevertheless, there is a series of continuous steps that are laid out to test each version of the model.
+
+First, we look into the correspondence (or _correlation_) between the sample home prices and each of the input (or _dependent_) variables. We visualize this as individual scatter plots or as an overall matrix diagram that summarizes correlations among all variables, so we can get an initial sense of which data is useful and which is too redundant.
+
+Second, we perform a linear regression: a method for determining how much home prices change by each additional unit of the input variables, informing us of not only their individual effectiveness but also of their aggregate power. This way we can further evaluate which data should make it into our model.
+
+The next step, cross validation, divides the data into two groups: a ‘training’ set that establishes the coefficients between variables and known house prices, and a ‘test’ set on which to predict house prices using these coefficients. By comparing the predicted values with the real ones, we measure the amount of error in our model, meaning **_how wrong_** our predictions are, or alternatively, **_how precisely_** can our model predict. At this point we also check for _outliers_ that may have a significantly extreme error in price and, using other tools like Google Maps, we assess if they should be excluded from our model.
+
+On top of that, we test our model in various ways to check whether it predicts significantly better in some places than in others, by looking for errors clustered in space. The first test, called _spatial lag_, averages the price error of each sample with its neighbors. The second one, _Moran’s I_, is used to prove that there is an underlying spatial structure that clusters together similar prices, instead of prices just being randomly distributed. Finally, we check for _neighborhood effects_, comparing the amount of error if neighborhoods are accounted for or not.
+
+Finally, we tested the generalizability of our model by comparing the distribution of the errors left in the model with the income context, namely, a map of the neighborhoods where most people have an income below the county median versus those where most people have an income above it.
 
 # Results
 
@@ -612,17 +779,21 @@ ggplot() +
 
 > Provide a **polished table** of your (training set) lm summary results (coefficients, R2 etc).
 
+Because each of Boulder County's 68 Census tracts appears as a separate categorical variable in the regression results, we include the full results table as an _Appendix_ at the end of this document.
+
 ```{r regression results, results = "asis"}
 
 # select regression data
-regData <- finalData
+regData <- finalData %>%
+  filter(toPredict == 0)
 
 # split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
   y = paste(
-    regData$extWall,
-    regData$floodRisk,
-    regData$neighborhood
+    regData$constMat, 
+    regData$heatingType, 
+    regData$extWall2, 
+    regData$tractID
   ),
   p = 0.75, list = FALSE)
 
@@ -640,32 +811,219 @@ reg.training <- lm(logPrice ~ .,
 # TODO: remove before finalizing
 # summary(reg.training)
 
-# output results table
-# TODO: recode and/or label variables to make this not look terrible
-stargazer(reg.training, type = "html")
-
-
 ```
 
 ## MAE and MAPE
 
 > Provide a **polished table** of mean absolute error and MAPE for a single **test set**. Check out the “kable” function for markdown to create nice tables.
 
+```{r MAE and MAPE, results = "asis"}
+
+# generate predictions and calculate errors
+homes.test <- homes.test %>%
+  mutate(
+    Regression = "Census tract effect",
+    logPrice.Predict = predict(reg.training, homes.test),
+    price.Predict = exp(logPrice.Predict),
+    price.Error = price.Predict - price,
+    price.AbsError = abs(price.Predict - price),
+    price.APE = (abs(price.Predict - price)/price.Predict)    
+  )
+
+# calculate MAE and MAPE
+errorTable <- data.frame(MAE = mean(homes.test$price.AbsError),
+                         MAPE = mean(homes.test$price.APE))
+
+# generate polished table
+errorTable %>%
+  kbl(
+    caption = "Mean average and mean absolute percent errors",
+    digits = 3,
+    format.args = list(big.mark = ",")
+  ) %>%
+  kable_classic(full_width = F)
+
+```
+
+
 ## Cross-Validation Results
 
 > Provide the results of your cross-validation tests. This includes mean and standard deviation MAE. Do **100 folds** and plot your cross-validation MAE as a histogram. Is your model generalizable to new data?
+
+```{r k-fold cross-validation}
+
+# perform k-fold cross-validation
+fitControl <- trainControl(method = "cv", number = 100)
+set.seed(825)
+
+# k-fold model training
+reg.cv <- 
+  train(
+    logPrice ~ .,
+    data = st_drop_geometry(homes.training) %>%
+      dplyr::select(-toPredict, -MUSA_ID, -price),
+    method = "lm", 
+    trControl = fitControl, 
+    na.action = na.omit
+  )
+reg.cv
+
+# Plot distribution of MAE
+allMAE <- reg.cv$resample[,3]
+hist(allMAE, breaks = 50)
+
+# calculate mean and standard deviation MAE
+mean(allMAE)
+sd(allMAE)
+
+```
 
 ## Predicted vs. Observed Prices
 
 > Plot predicted prices as a function of observed prices
 
+```{r }
+
+# TODO: create this chart
+
+```
+
 ## Residuals, Moran's I, and Spatial Lag
 
 > Provide a map of your residuals for your **test set**. **Include a Moran’s I test and a plot** of the spatial lag in errors.
 
+```{r Spatial lag test}
+
+# --- Residuals ---
+
+# TODO: map residuals for test set
+
+
+# --- Spatial Lag ---
+
+coords.test <-  st_coordinates(homes.test) 
+# Take value of neighbors for weighted matrix
+neighborList.test <- knn2nb(knearneigh(coords.test, 5))
+# Create spatial weight matrix
+spatialWeights.test <- nb2listw(neighborList.test, style="W")
+
+
+# calculate spatial lag of price and errors
+homes.test <- homes.test %>%
+  mutate(lagPrice = lag.listw(spatialWeights.test, price),
+         lagPriceError = lag.listw(spatialWeights.test, price.Error))
+
+# TODO: display plots side by side using gridarrange? 
+# plot price by spatial lag of price
+ggplot(data = homes.test, aes(x=lagPrice, y=price)) +
+  geom_point(color = "#fa7800") +
+  geom_smooth(method = "lm", color = "#25cb10") +
+  labs(title = "Price as a function of the spatial lag of price",
+       x = "Spatial lag of price (Mean price of 5 nearest neighbors)",
+       y = "Price") +
+  plotTheme()
+
+# plot error by spatial lag of error
+ggplot(data = homes.test, aes(x=lagPriceError, y=price.Error)) +
+  geom_point(color = "#fa7800") +
+  geom_smooth(method = "lm", color = "#25cb10") +
+  labs(title = "Error as a function of the spatial lag of error",
+       x = "Spatial lag of errors (Mean error of 5 nearest neighbors)",
+       y = "Error") +
+  plotTheme()
+
+# --- Moran's I ---
+
+# Run the actual Moran's I
+moranTest <- moran.mc(homes.test$price.Error, 
+                      spatialWeights.test, nsim = 999)
+
+
+# Plot of the Observed Moran's I and the permutations Moran's I distribution
+ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
+  geom_histogram(binwidth = 0.01) +
+  geom_vline(aes(xintercept = moranTest$statistic), colour = "#fa7800",size=1) +
+  scale_x_continuous(limits = c(-1, 1)) +
+  labs(title="Observed and permuted Moran's I",
+       subtitle= "Observed Moran's I in orange",
+       x="Moran's I",
+       y="Count") +
+  plotTheme()
+
+```
+
+
+```{r Spatial lag test summary}
+
+left_join(
+  st_drop_geometry(homes.test) %>%
+    group_by(tract) %>%
+    summarize(meanPrice = mean(price, na.rm = T)),
+  mutate(homes.test, predict.fe = 
+           predict(lm(price ~ tract, data = homes.test), 
+                   homes.test)) %>%
+    st_drop_geometry %>%
+    group_by(tract) %>%
+    summarize(meanPrediction = mean(predict.fe))) %>%
+  # TODO: add number formatting from other tables
+  kable() %>% kable_classic()
+
+```
+
 ## Map of Predicted Values
 
-> Provide a map of your predicted values for where ‘’ is **both** 0 and 1.
+> Provide a map of your predicted values for where ‘toPredict’ is **both** 0 and 1.
+
+```{r spatial distribution of predicted values}
+
+# --- generate predictions ---
+
+# set regression data set to include both toPredict == 0 and toPredict == 1
+regData <- finalData
+
+# create new training and test sets
+all.homes.training <- filter(regData, toPredict == 0)
+all.homes.test <- filter(regData, toPredict == 1)
+
+# estimate model on training set
+final.reg.training <- lm(logPrice ~ .,
+                   data = st_drop_geometry(regData) %>%
+                     dplyr::select(-toPredict, -MUSA_ID, -price),
+                   na.action = na.exclude
+)
+
+# predict home prices
+finalData.predictions <- finalData %>%
+  mutate(
+    logPrice.Predict = predict(final.reg.training, finalData),
+    price.Predict = exp(logPrice.Predict),
+    price.Error = price.Predict - price,
+    price.AbsError = abs(price.Predict - price),
+    price.APE = (abs(price.Predict - price)/price.Predict) 
+  )
+
+# map predicted home prices
+ggplot() +
+  geom_sf(data = countyLimits, fill = "gray99") +
+  geom_sf(
+    data = finalData.predictions,
+    size = 1,
+    aes(color = price.Predict), alpha = 0.5
+  ) +
+  geom_sf(data = munis, fill = "transparent", lwd = 0.5) +
+  scale_color_viridis_c("Predicted price",
+                       direction = -1, 
+                       option = "D") +
+  geom_sf(data = countyLimits, fill = "transparent") +
+  labs(
+    title = "Spatial distribution of sale prices",
+    subtitle = "Individual homes relative to county and municipality boundaries",
+    caption = "Fig. X.X" # TODO: number figure before finalizing
+  ) +
+  mapTheme()
+
+```
+
 
 ## MAPE by Neighborhood
 
@@ -673,18 +1031,231 @@ stargazer(reg.training, type = "html")
 
 > Using the **test set** predictions, provide a map of mean absolute percentage error (MAPE) by neighborhood.
 
+```{r MAPE by neighborhood: map}
+
+# 6. NEIGHBORHOOD EFFECTS
+# Calculate a baseline regression without the neighborhoods
+
+reg.baseline <- lm(logPrice ~ ., data = as.data.frame(st_drop_geometry(homes.training)) %>% 
+                  dplyr::select(-toPredict, -MUSA_ID, -price, -tract))
+summary(reg.baseline)
+
+# st_drop_geometry(regData)
+
+homes.test.baseline <-
+  homes.test %>%
+  dplyr::select(-tract) %>%
+  mutate(Regression = "Baseline regression",
+         logPrice.Predict = predict(reg.baseline, homes.test), 
+         price.Predict = exp(logPrice.Predict),
+         price.Error = price.Predict- price,
+         price.AbsError = abs(price.Predict- price),
+         price.APE = (abs(price.Predict- price)) / price) %>%
+  left_join(., tractsData)
+
+mean(homes.test.baseline$price.AbsError) # MAE
+mean(homes.test.baseline$price.APE)      # MAPE
+
+
+# TODO: rejoin tracts to homes.test.baseline?
+
+bothRegressions <- rbind(
+  dplyr::select(homes.test, starts_with("price"), Regression, tract) %>%
+  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error)),
+  dplyr::select(homes.test.baseline, starts_with("price"), Regression, tract) %>%
+  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
+  )
+
+# Produce a table comparing non-neighborhood effects of a 'Baseline' regression
+st_drop_geometry(bothRegressions) %>%
+  gather(Variable, Value, -Regression) %>%
+  filter(Variable == "price.AbsError" | Variable == "price.APE") %>%
+  group_by(Regression, Variable) %>%
+    summarize(meanValue = mean(Value, na.rm = T)) %>%
+    spread(Variable, meanValue) %>%
+    kable() %>% kable_classic()
+
+# set neighborhood geometry
+# nhoods <- tracts %>%
+#   rename(neighborhood = geounit[idx])
+
+st_drop_geometry(bothRegressions) %>%
+  group_by(Regression, tract) %>%
+  summarize(mean.MAPE = mean(price.APE, na.rm = T)) %>%
+  ungroup()%>%
+  left_join(tracts) %>%
+  st_sf() %>%
+  ggplot() + 
+    geom_sf(aes(fill = mean.MAPE)) +
+    geom_sf(data = bothRegressions, colour = "black", size = .5) +
+    facet_wrap(~Regression) +
+    scale_fill_gradient(low = palette5[1], high = palette5[5],
+                        name = "MAPE") +
+    labs(title = "Mean test set MAPE by neighborhood") +
+    labs(title = "Census tracts") +
+    mapTheme()
+
+```
+
 ### Scatterplot
 
 > Provide a scatterplot plot of MAPE by neighborhood as a function of mean price by neighborhood.
+
+```{r MAPE by neighborhood: scatterplot}
+
+bothRegressions %>%
+  dplyr::select(price.Predict, price, Regression) %>%
+    ggplot(aes(price, price.Predict)) +
+  geom_point() +
+  stat_smooth(aes(price, price), 
+             method = "lm", se = FALSE, size = 1, colour="#FA7800") + 
+  stat_smooth(aes(price.Predict, price), 
+              method = "lm", se = FALSE, size = 1, colour="#25CB10") +
+  facet_wrap(~Regression) +
+  labs(title="Predicted sale price as a function of observed price",
+       subtitle="Orange line represents a perfect prediction; Green line represents prediction") +
+  plotTheme()
+
+
+```
 
 ## Generalizability Across Groups
 
 > Using tidycensus, split your city into two groups (perhaps by race or income) and test your model’s generalizability. Is your model generalizable?
 
+```{r generalizability across groups}
+
+# 7. GENERALIZABILITY TEST
+
+# divide Census tracts by income
+incomeTest <- tracts %>%
+  mutate(incomeContext = if_else(medianIncome < 83019, "Below median income", "Above median income"))
+
+# Plot the income groups division
+grid.arrange(ncol = 1,
+  ggplot() + geom_sf(data = na.omit(incomeTest), aes(fill = incomeContext)) +
+    scale_fill_manual(values = c(palette5[4], palette5[3], palette5[2]), name="Income Context") +
+    #scale_discrete(limits=dat$V1) +
+    labs(title = "Income Context") +
+    mapTheme() + theme(legend.position="bottom"))
+
+# test generalizability by income context
+st_join(bothRegressions, incomeTest) %>% 
+  group_by(Regression, incomeContext) %>%
+  summarize(mean.MAPE = scales::percent(mean(price.APE, na.rm = T))) %>%
+  st_drop_geometry() %>%
+  spread(incomeContext, mean.MAPE) %>%
+  kable(., caption = "Test set MAPE by household income context") %>% kable_classic()
+
+
+# Replace with NEW INCOME DATA
+# incomeTest <- blockGroups %>%
+#   select(
+#          pctIncome000,
+#          pctIncome010,
+#          pctIncome015,
+#          pctIncome020,
+#          pctIncome025,
+#          pctIncome030,
+#          pctIncome035,
+#          pctIncome040,
+#          pctIncome045,
+#          pctIncome050,
+#          pctIncome060,
+#          pctIncome075,
+#          pctIncome100,
+#          pctIncome125,
+#          pctIncome150,
+#          pctIncome200
+#          ) %>%
+#   mutate(lowIncome =
+#            pctIncome000+
+#            pctIncome010+
+#            pctIncome015+
+#            pctIncome020+
+#            pctIncome025+
+#            pctIncome030+
+#            pctIncome035+
+#            pctIncome040+
+#            pctIncome045+
+#            pctIncome050+
+#            pctIncome060+
+#            pctIncome075,
+#          highIncome=
+#            pctIncome100,
+#            pctIncome125,
+#            pctIncome150,
+#            pctIncome200) %>%
+#   mutate(incomeContext = ifelse((lowIncome) > .5, "Low Income", "High Income")) %>%
+#   select(-starts_with('pctIncome'), -lowIncome, -highIncome)
+# 
+# 
+# # Plot the income groups division
+# grid.arrange(ncol = 1,
+#   ggplot() + geom_sf(data = na.omit(incomeTest), aes(fill = incomeContext)) +
+#     scale_fill_manual(values = c(palette5[4], palette5[3], palette5[2]), name="Income Context") +
+#     #scale_discrete(limits=dat$V1) +
+#     labs(title = "Income Context") +
+#     mapTheme() + theme(legend.position="bottom"))
+
+```
+
 # Discussion
 
 > Is this an effective model? What were some of the more interesting variables? How much of the variation in prices could you predict? Describe the more important features? Describe the error in your predictions? According to your maps, could you account the spatial variation in prices? Where did the model predict particularly well? Poorly? Why do you think this might be?
 
+We consider this to be an effective model because by just using open, easy to access data, it can predict home prices in Boulder County with a confidence of _____ . 
+
+>>>>What were some of the most interesting variables?  [ADD A THIRD ONE?]<<<<
+
+In the hope of assessing if the increasing effects of climate change have had any effects on the prices of houses in Boulder, we developed two natural disaster-based evaluation variables from data in Boulder County’s Open Data website.
+
+First, we looked into Floodplains Hazard data. In 2013, Boulder was hit by a flood event that destroyed 2000 homes and left [at least $4 billion in damage](https://www.bouldercast.com/the-2013-boulder-flood-two-years-and-three-billion-dollars-later/). This catastrophe led the state to create the [Colorado Hazard Mapping Program (CHAMP)](https://coloradohazardmapping.com/champ), in order to produce more precise flood hazard prediction models, of which the data we incorporated is extracted.
+
+Additionally, we seeked to assess the risk of exposure to the [increasingly frequent wildfires in Colorado](https://www.nbcnews.com/news/us-news/3-largest-wildfires-colorado-history-have-occurred-2020-n1244525), using the historical wildfire perimeters in the County, which could be controlled not only by the distance of houses from the combined wildfire extensions, but also by how far back in time events are taken into account (10-, 15- or 20-years ago). We did so by counting the number of wildfire events that have occured from a [two-mile distance](https://www.researchgate.net/publication/222788889_Do_Nearby_Forest_Fires_Cause_A_Reduction_in_Residential_Property_Values) from a home.
+
+> [map that shows wildfire data] <
+
+> How much of the variation in prices could you predict? <
+
+R squared, Abs error, mAPE.???
+
+> Describe the more important features? <
+
+House quality, pct income group? HHvacancy-why?. 
+
+> Describe the error in your predictions? <
+
+> Where is it, how is it distributed in price and space? <
+
+>[2x2 maps showing errors in the baseline model vs. errors with ad hoc ‘subcommunities’ as neighborhoods, vs. ‘census tracts’ as neighborhoods]<
+
+Boulder’s Open Data web database does not provide off-the-shelf county-wide neighborhood boundaries, so in order to look into the spatial variation in prices county-wide, we created our own ‘neighborhoods’ by joining a Boulder city ‘subcommunities’ map into the city zoning map and then merging it with the county wide municipalities and unincorporated areas map.
+
+Because of the ad-hoc nature of these boundaries, we tested how well they performed versus the ‘census tracts as neighborhoods’ approach, acknowledging that doing so introduces a certain amount of scale bias into the model. In the end, the census tracts proved to be more effective on a county-wide level because they better differentiate between areas that in our ‘neighborhoods’ were all encompassed as “agricultural” or “forest” areas. 
+
+Since we chose census tracts as neighborhoods, we tried to reduce redundancies and spatial biases (or [MAUP](https://en.wikipedia.org/wiki/Modifiable_areal_unit_problem)) by aggregating the census data on the more granular block group level.
+
+>Where did the model predict particularly well? Poorly? Why do you think this might be?<
+
 # Conclusion
 
 > Would you recommend your model to Zillow? Why or why not? How might you improve this model?
+
+We would confidently recommend our model to Zillow, but we would make sure to note its limitations. For reasons mentioned before, we consider that a model trained on data from an area as homogeneous and arbitrarily defined as Boulder County is going to inevitably bear a great amount of selection and scale bias that may make it unreliable and not generalizable in more demographically diverse geographies.
+
+Nonetheless, we believe our model has a smart approach at selecting and transforming the right internal and external characteristics and services that influence house values, and on which it could be easy to build on to better predict on a more diverse study area. For example, an optimized version of our model could instead be trained on aggregate data from the ten counties that form the **Denver-Aurora-Lakewood Combined Statistical Area**, of which Boulder is a part of.
+
+Additionally, the model can greatly benefit from applying other more powerful and data-specific methods of predictions that we did not implement at the moment.
+
+# Appendix
+
+The full results of our linear regression are below.
+
+```{r regression results table, results='asis'}
+
+# output regression results table
+# TODO: recode and/or label variables to make this not look terrible
+stargazer(reg.training, type = "html")
+
+```

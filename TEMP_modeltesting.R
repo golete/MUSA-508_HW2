@@ -1,4 +1,4 @@
-regData <- testData # UPDATE WHEN RUNNING NEW MODEL
+regData <- finalData # UPDATE WHEN RUNNING NEW MODEL
 
 # Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
@@ -7,7 +7,7 @@ inTrain <- createDataPartition(
     # regData$basement, 
     # egData$acType, 
     regData$heatingType, 
-    regData$extWall, 
+    # regData$extWall, 
     regData$extWall2, 
     # regData$roofType,
     regData$tractID

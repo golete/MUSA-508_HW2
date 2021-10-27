@@ -18,6 +18,7 @@ library(dummies) # TODO: probably remove along with dummy correlation code
 library(spdep)
 library(caret)
 library(FNN)
+library(units)
 library(grid)
 library(gridExtra)
 library(ggcorrplot)
@@ -30,11 +31,16 @@ library(stargazer)
 # load book functions
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
+# block scientific notation
+options(scipen = 999)
+
 # set Census API key
 census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
 
-# block scientific notation
-options(scipen = 999)
+# set ACS year and geography
+year <- 2019
+state <- 08
+county <- 13
 
 # set shortcuts
 g <- glimpse
@@ -66,14 +72,6 @@ plotTheme <- function() {
     plot.subtitle = element_text(face = "italic"),
     plot.caption = element_text(hjust = 0))
 }
-
-
-# Set geography and period of time analyzed
-
-year <- 2019
-state <- 08
-county <- 13
-
 
 ```
 
@@ -213,8 +211,6 @@ homeRecodes <- data %>%
     designType = if_else(
       designCode == "0120", "Multi-Story Townhouse", as.character(designCodeDscr)
     ),
-    # calculate total rooms, including baths
-    nbrRooms = nbrBedRoom+nbrRoomsNobath+nbrFullBaths+nbrThreeQtrBaths+(nbrHalfBaths/2),
     # effective age (time since last major renovation)
     # effectiveAge = if_else(year <= builtYear, 0, year - EffectiveYear), # negative values recoded as 0
   )
@@ -467,40 +463,84 @@ censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
 
 # D1. Wildfire history data
 
+# load wildfire polygon data, limited to fires in last 20 years
 wildfires <-
   st_read('Wildfire_History.geojson') %>%
-  filter(ENDDATE > "2001-10-19 00:00:00") %>% # FILTER to only fires that happened after 2000
+  filter(ENDDATE > "2001-10-19 00:00:00") %>%
   select(NAME, geometry) %>%
-  st_transform(boulderCRS) %>%
-  st_buffer(1610) %>%
-  st_union() %>%
-  st_sf() %>%
-  mutate(wildfireHazard = 1)
+  st_transform(boulderCRS)
 
-wildfireData <- st_join(homeIDs, wildfires) %>%
-  st_drop_geometry() %>%
-  mutate(wildfireHazard = replace_na(wildfireHazard, 0))
+# get home locations
+wildfireData <- homeIDs
 
+# count wildfires within two-mile radius
+wildfireData$wildfireHistory <- st_buffer(homeIDs, 3219) %>% # 3219 m = 2 miles
+  aggregate(mutate(wildfires, counter = as.numeric(1)), ., length) %>%
+  pull(counter) %>%
+  replace_na(., 0)
+
+# prepare for joining to main data set
+wildfireData <- wildfireData %>%
+  st_drop_geometry()
+
+# wildfires <-
+#   st_read('Wildfire_History.geojson') %>%
+#   filter(ENDDATE > "2001-10-19 00:00:00") %>% # FILTER to only fires that happened after 2000
+#   select(NAME, geometry) %>%
+#   st_transform(boulderCRS) %>%
+#   st_buffer(1610) %>%
+#   st_union() %>%
+#   st_sf() %>%
+#   mutate(wildfireHazard = 1)
+# 
+# wildfireData <- st_join(homeIDs, wildfires) %>%
+#   st_drop_geometry() %>%
+#   mutate(wildfireHazard = replace_na(wildfireHazard, 0))
 
 # D2. CHAMP floodplain maps
 
-fldrisk = c(AE = 4, AH = 3, AO = 2, X = 1)
-
+# read in flood maps
 floodplains <- 
   st_read('Floodplain_-_BC_Regulated.geojson') %>%
-  st_transform(boulderCRS) %>%
-  select(SFHA_TF, #Special Flood Hazard Area. If the area is within the SFHA.
-         FLD_ZONE, #Flood Zone. This is a flood zone designation.
-         geometry) %>%
-  mutate(FLD_ZONE = recode(FLD_ZONE, !!!fldrisk, .default = 0)) %>%
-  group_by(FLD_ZONE) %>%
-  summarize(geometry = st_union(geometry))%>%
-  rename(floodRisk = FLD_ZONE)
+  dplyr::select(FLD_ZONE, geometry) %>%
+  st_transform(boulderCRS)
+  
 
-floodData <- st_join(homeIDs, floodplains) %>%
-  st_drop_geometry() %>%
-  mutate(floodRisk = replace_na(floodRisk, 0))
+# recode flood risk
+floodRecode <- st_join(homeIDs, floodplains) %>%
+  mutate(
+    floodRisk = case_when(
+      is.na(FLD_ZONE) ~ 0,
+      FLD_ZONE == "X" ~ 1,
+      str_detect(FLD_ZONE, "A") ~ 2
+    )
+  )
+  
+# save data
+floodData <- floodRecode %>%
+  dplyr::select(-FLD_ZONE) %>%
+  st_drop_geometry()
 
+  # rename(floodRisk = FLD_ZONE) %>%
+  # mutate(floodRisk = replace_na(floodRisk, 0))
+  # 
+# fldrisk = c(AE = 4, AH = 3, AO = 2, X = 1)
+# 
+# floodplains2 <- 
+#   st_read('Floodplain_-_BC_Regulated.geojson') %>%
+#   st_transform(boulderCRS) %>%
+#   select(SFHA_TF, #Special Flood Hazard Area. If the area is within the SFHA.
+#          FLD_ZONE, #Flood Zone. This is a flood zone designation.
+#          geometry) %>%
+#   mutate(FLD_ZONE = recode(FLD_ZONE, !!!fldrisk, .default = 0)) %>%
+#   group_by(FLD_ZONE) %>%
+#   summarize(geometry = st_union(geometry))%>%
+#   rename(floodRisk = FLD_ZONE)
+# 
+# floodData <- st_join(homeIDs, floodplains2) %>%
+#   mutate(floodRisk = replace_na(floodRisk, 0)) %>%
+#   st_drop_geometry()
+  
 ```
 
 
@@ -595,9 +635,9 @@ st_drop_geometry(finalData) %>%
 
 
 st_drop_geometry(finalData) %>% 
-  dplyr::select(logPrice, quarterSold) %>%
-  mutate(quarterSold = as.factor(quarterSold)) %>%
-  filter(logPrice <= 1000000) %>%
+  dplyr::select(logPrice, qualityNum) %>%
+  # mutate(qualityNum = as.factor(qualityNum)) %>%
+  # filter(logPrice <= 1000000) %>%
   gather(Variable, Value, -logPrice) %>% 
   ggplot(aes(Value, -logPrice)) +
   geom_bar(position = "dodge", stat = "summary", fun.y = "mean") +
@@ -624,19 +664,20 @@ corLogPrice <- filter(corDF, Var1 == "logPrice") # stronger correlations
 
 corFinishedSF <- filter(corDF, Var1 == "TotalFinishedSF")
 
-# generate correlation matrix chart for numeric variables
-ggcorrplot(
-   round(cor(numericVars), 1),
-   p.mat = cor_pmat(numericVars),
-   show.diag = TRUE,
-   colors = c("#25cb10", "#ffffff", "#fa7800"),
-   type = "lower",
-   insig = "blank",
-   lab =T
-) +
-   labs(title = "Correlation across numeric variables") +
-  plotTheme()
+# generate correlation matrix chart for numeric variables - with labels
+# ggcorrplot(
+#    round(cor(numericVars), 1),
+#    p.mat = cor_pmat(numericVars),
+#    show.diag = TRUE,
+#    colors = c("#25cb10", "#ffffff", "#fa7800"),
+#    type = "lower",
+#    insig = "blank",
+#    lab =T
+# ) +
+#    labs(title = "Correlation across numeric variables") +
+#   plotTheme()
 
+# generate correlation matrix chart for numeric variables
 ggcorrplot(
    round(cor(numericVars), 1),
    p.mat = cor_pmat(numericVars),
@@ -757,14 +798,14 @@ d2n <- finalData %>%
   dplyr::select(MUSA_ID,
                 price,
                 logPrice,
-                nbrRooms,
+                nbrRoomsNobath,
                 qualityNum,
                 builtEra,
                 # basementDummy,
                 # garageDummy,
                 designCodeDscr,
                 extWall,
-                starts_with('neigh'),
+                # starts_with('tract'),
                 starts_with('pctIncome'),
                 pctVacant,
                 pctHigherEdu,
@@ -778,7 +819,7 @@ d3n <- finalData %>%
   dplyr::select(MUSA_ID,
                 price,
                 logPrice,
-                nbrRooms,
+                nbrRoomsNobath,
                 qualityNum,
                 builtEra,
                 # basementDummy,
@@ -896,9 +937,11 @@ neighborList.test <- knn2nb(knearneigh(coords.test, 5))
 # Create spatial weight matrix
 spatialWeights.test <- nb2listw(neighborList.test, style="W")
 
-homes.test %>%
-  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error)) %>%
-  ggplot(aes(x=lagPriceError, y=price.Error)) # This doesn't plot anything
+homes.test <- homes.test %>%
+  mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
+  
+# TODO: plot spatial lag
+# ggplot(aes(x=lagPriceError, y=price.Error)) # This doesn't plot anything
 
 # Run the actual Moran's I
 moranTest <- moran.mc(homes.test$price.Error, 

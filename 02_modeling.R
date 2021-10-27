@@ -121,8 +121,6 @@ summary(expDataReg)
 
 regData <- finalData %>% filter(toPredict == 0, MUSA_ID != 1397) # UPDATE WHEN RUNNING NEW MODEL
 
-# regData <- dplyr::select(regData, -city, -subcommunity)
-
 # Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
   y = paste(

@@ -1,10 +1,47 @@
 # --- TEST OPEN DATA ---
 
+wholeFoodsRaw <- st_read("wholefoodsmarkets_boulderCO.csv")
 
+wholeFoods <- st_as_sf(wholeFoodsRaw, coords = c("lon", "lat"), crs = 4326) %>%
+  dplyr::select(ID, geometry) %>%
+  st_sf() %>%
+  st_transform(boulderCRS)
+
+wholeFoodsData <- homeIDs %>%
+  mutate(wholeFoodsDistance = nn_function(st_coordinates(.), st_coordinates(wholeFoods), 1)) %>%
+  st_drop_geometry()
+
+
+coloradoHighways <- st_read('HighwaysByFunctionalClass.geojson') %>%
+  dplyr::select(OBJECTID, FUNCCLASS, geometry) %>%
+  st_transform(boulderCRS) %>%
+  st_crop(.,st_buffer(countyLimits, 8045)) %>% # 3218
+  st_union(.)
+
+highwayData <- homeIDs %>%
+  mutate(highwayDistance = log(drop_units(st_distance(., coloradoHighways)))) %>% # * 3.28 for ft
+  st_drop_geometry()
+
+# --- dispensaries ---
+dispensaries <- st_read("Marijuana_Establishments.geojson") %>%
+  filter(str_detect(Description, "Store")) %>%
+  dplyr::select(OBJECTID, Type, geometry) %>%
+  st_sf() %>%
+  st_transform(boulderCRS)
+
+dispensaryData <- homeIDs %>%
+  mutate(dispensaryDistance = nn_function(st_coordinates(.), st_coordinates(marijuana), 1) / 1609) %>%
+  st_drop_geometry()
+  
 # --- A. HOME VALUE DATA ---
 
 testRecodes <- homeRecodes %>%
   mutate(
+    # extWall = case_when(
+    #   is.na(ExtWallPrim) | ExtWallPrim == 0 ~ "Missing",
+    #   ExtWallPrim %in% c(20, 25, 90, 130) ~ "Other",
+    #   TRUE ~ as.character(ExtWallDscrPrim)
+    # )
   )
 
 # create clean data frame for modeling
@@ -227,7 +264,7 @@ wildfires <-
   select(NAME, geometry) %>%
   st_transform(boulderCRS)
 
-# get home point data
+# get home locations
 wildfireData <- homeIDs
 
 # count wildfires within two-mile radius
@@ -240,8 +277,31 @@ wildfireData$wildfireHistory <- st_buffer(homeIDs, 3219) %>% # 3219 m = 2 miles
 wildfireData <- wildfireData %>%
   st_drop_geometry()
 
+# D2. Flood risk
+
+# floodplains <- 
+#   st_read('Floodplain_-_BC_Regulated.geojson') %>%
+#   st_transform(boulderCRS) %>%
+#   dplyr::select(FLD_ZONE, geometry)
+
+floodRecode <- st_join(homeIDs, floodplains) %>%
+  mutate(
+    floodRisk = case_when(
+      is.na(FLD_ZONE) ~ 0,
+      FLD_ZONE == "X" ~ 1,
+      str_detect(FLD_ZONE, "A") ~ 2
+    )
+  )
+
+floodData <- floodRecode %>%
+  dplyr::select(-FLD_ZONE) %>%
+  st_drop_geometry()
+
 # E. --- COMBINE ALL ---
 
 testData <- left_join(homeData, tractsData) %>%
   left_join(., censusData) %>%
-  left_join(., wildfireData)
+  left_join(., wildfireData) %>%
+  left_join(., floodData) %>%
+  left_join(., marijuanaData) %>%
+  left_join(., wholeFoodsData)

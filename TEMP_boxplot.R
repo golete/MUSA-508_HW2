@@ -1,13 +1,13 @@
 ggplot() +
   geom_boxplot(data = finalData,
-               aes(x = roofType,
+               aes(x = extWall,
                    y = price))
 
-table(finalData$roofType)
+table(finalData$extWall)
 
 ggplot() +
   geom_boxplot(data = testData,
-               aes(x = roofType,
+               aes(x = extWall,
                    y = price))
 
-table(testData$roofType)
+table(testData$extWall)
