@@ -792,6 +792,7 @@ inTrain <- createDataPartition(
   y = paste(
     regData$constMat, 
     regData$heatingType, 
+    regData$extWall,
     regData$extWall2, 
     regData$tractID
   ),
@@ -1031,7 +1032,7 @@ ggplot() +
 
 > Using the **test set** predictions, provide a map of mean absolute percentage error (MAPE) by neighborhood.
 
-```{r MAPE by neighborhood: map}
+```{r MAPE by neighborhood: table}
 
 # 6. NEIGHBORHOOD EFFECTS
 # Calculate a baseline regression without the neighborhoods
@@ -1074,11 +1075,11 @@ st_drop_geometry(bothRegressions) %>%
     summarize(meanValue = mean(Value, na.rm = T)) %>%
     spread(Variable, meanValue) %>%
     kable() %>% kable_classic()
-
+```
 # set neighborhood geometry
 # nhoods <- tracts %>%
 #   rename(neighborhood = geounit[idx])
-
+```{r MAPE by neighborhood: map}
 st_drop_geometry(bothRegressions) %>%
   group_by(Regression, tract) %>%
   summarize(mean.MAPE = mean(price.APE, na.rm = T)) %>%
