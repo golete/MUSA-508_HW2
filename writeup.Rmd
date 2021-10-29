@@ -32,6 +32,9 @@ library(stargazer)
 # load book functions
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
+# set Boulder CRS
+boulderCRS <- "ESRI:102253" # NAD 1983 HARN StatePlane Colorado North FIPS 0501
+
 # set Census API key
 census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = FALSE)
 
@@ -112,9 +115,6 @@ Given the richness of data from A and C, the data wrangling process focused on s
 ### A. Home value data
 
 ```{r data: homes}
-
-# set Boulder CRS
-boulderCRS <- "ESRI:102253" # NAD 1983 HARN StatePlane Colorado North FIPS 0501
 
 # --- A. HOME VALUE DATA ---
 
@@ -288,8 +288,8 @@ munis <- st_read('Municipalities.geojson') %>%
 
 # B2. Census tracts
 
-# import Census tract boundaries as proxy for neighborhoods
-# TODO: also import median income here for generalizability test later on?
+# import Census tract boundaries as proxy for neighborhoods,
+# plus tract median income for generalizability test
 tracts <- 
   get_acs(geography = "tract",
           variables = "B19013_001E", # median household income
@@ -317,9 +317,11 @@ tractsData <- st_join(homeIDs, tracts) %>%
 # --- C. AMERICAN COMMUNITY SURVEY DATA ---
 
 # review available variables
-acsVariableList <- load_variables(year,"acs5", cache = TRUE)
+# acsVariableList <- load_variables(year,"acs5", cache = TRUE)
 
 # define variables to import
+# TODO: probably get rid of <$100k income group; highly colinear
+# TODO: maybe also get rid of occupancy, vacancy?
 acsVars <- c("B02001_001E", # race: total
            "B02001_002E", # race: white alone
            'B25003_001E', # tenure: occupied housing units
@@ -348,8 +350,6 @@ acsVars <- c("B02001_001E", # race: total
            'B19001_015E', # household income: $125-150k
            'B19001_016E', # household income: $150-200k
            'B19001_017E') # household income: $200 or more
-
-# TODO: probably get rid of <$100k income group; highly colinear
 
 # import variables from ACS 2019 5-year
 blockGroups <- 
@@ -446,7 +446,7 @@ censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
 ### D. Climate risk-related open data
 
 ```{r data: climate risk}
-# D. --- ADDITIONAL OPEN DATA ---
+# D. --- CLIMATE RISK OPEN DATA ---
 
 # D1. Wildfire history
 # TODO: add directly to finalData without merging?
@@ -499,6 +499,9 @@ floodData <- floodRecode %>%
 ### E. Experimental open data
 
 ```{r data: experimental open data}
+
+# --- E. EXPERIMENTAL OPEN DATA ---
+
 # D3. Distance to recreational cannabis dispensaries
 dispensaries <- st_read("Marijuana_Establishments.geojson") %>%
   filter(str_detect(Description, "Store")) %>%
@@ -539,7 +542,7 @@ coloradoHighways <- st_read('HighwaysByFunctionalClass.geojson') %>%
 
 # calculate distance from highways and save
 highwayData <- homeIDs %>%
-  mutate(highwayDistance = log(drop_units(st_distance(., coloradoHighways)))) %>%
+  mutate(highwayDistance = drop_units(st_distance(., coloradoHighways))) %>%
   st_drop_geometry()
 
 # E. --- COMBINE ALL ---
@@ -621,9 +624,10 @@ ggcorrplot(
 
 > Present 4 home price correlation scatterplots that you think are of interest. I’m going to look for **interesting open data** that you’ve integrated with the home sale observations.
 
-```{r correlation scatterplots}
+```{r correlation scatterplots, fig.width=10}
 
-# TODO: select four variables to plot
+# TODO: select four variables to plot:
+# probably pctIncomeAbove200k, pctHigherEdu, wildfireHistory, floodRisk?
 correlationVars <- c("pctHigherEdu", "pctIncomeAbove200k", "pctIncomeBelow100k", "wildfireHistory", "floodRisk")
 
 # create scatterplots
@@ -632,10 +636,11 @@ st_drop_geometry(finalData) %>%
   pivot_longer(cols = !price, names_to = "Variable", values_to = "Value") %>%
   ggplot(aes(Value, price)) +
     geom_point(size = 0.5) +
-    geom_smooth(method = "lm", color = "#FA7800") +
-    facet_wrap(~Variable, ncol = 4, scales = "free") +
+    geom_smooth(method = "lm", color = "#fa7800") +
+    scale_y_continuous(labels = scales::dollar_format()) +
+    facet_wrap(~Variable, ncol = 4, scales = "free_x") +
     labs(title = "Price as a function of numeric variables") +
-  plotTheme()
+    plotTheme()
 
 ```
 
@@ -643,7 +648,7 @@ st_drop_geometry(finalData) %>%
 
 > Develop 1 map of your dependent variable (sale price)
 
-``` {r spatial distribution of sale prices}
+``` {r spatial distribution of sale prices, fig.width = 10}
 
 # TODO: display these side by side with gridxtra?
 
@@ -703,6 +708,53 @@ ggplot() +
   ) +
   mapTheme()
 
+
+# --- combined plot ---
+
+grid.arrange(ncol = 2,
+  ggplot() +
+  geom_sf(
+    data = priceByTract, 
+    aes(fill = meanPrice),
+    lwd = 0.1,
+    color = "black",
+    alpha = 0.7
+  ) +
+  scale_fill_viridis_c("Mean price",
+                       direction = -1,
+                       option = "G",
+                       labels = scales::dollar_format()) +
+  geom_sf(data = countyLimits, fill = "transparent") +
+  labs(
+    title = "Spatial distribution of home prices",
+    subtitle = "Mean sale price by Census tract",
+    caption = "Fig. X.X" # TODO: number figure before finalizing
+  ) +
+  mapTheme(),
+  ggplot() +
+  geom_sf(data = countyLimits, fill = "gray99") +
+  geom_sf(
+    data = homeData,
+    size = 1,
+    aes(color = price)
+  ) +
+  geom_sf(data = munis, fill = "transparent", lwd = 0.5) +
+  scale_color_viridis_c("Price",
+                       direction = -1, 
+                       option = "D",
+                       labels = scales::dollar_format()) +
+  geom_sf(data = countyLimits, fill = "transparent") +
+  labs(
+    title = "Spatial distribution of sale prices",
+    subtitle = "Individual homes with municipal boundaries",
+    caption = "Fig. X. X" # number figure before finalizing
+  ) +
+  mapTheme()
+)
+
+
+
+
 ```
 
 ## Spatial Distribution of Predictors
@@ -713,13 +765,13 @@ ggplot() +
 
 # map wildfires in last 20 years
 ggplot() +
-  geom_sf(data = countyLimits, fill = "gray20", color = "gray10", lwd = 0) +
-  geom_sf(data = tracts, fill = "transparent", color = "gray15") +
+  geom_sf(data = countyLimits, fill = "gray20", color = "gray10", size = 0.5) +
+  geom_sf(data = tracts, fill = "transparent", color = "gray10") +
   geom_sf(data = finalData, aes(color = wildfireHistory), alpha = 0.7, size = 1.5) +
   scale_color_viridis_c("Fires", option = "B", breaks = c(0, 2, 4, 6, 8)) +
   labs(title = "Wildfires within two miles in last 20 years",
        subtitle = "Individual homes relative to Census tracts",
-       caption = "Figure X.X") + # TODO: number before finalizing
+       caption = "Fig. X.X") + # TODO: number before finalizing
   mapTheme()
 
 # TODO: try all distances logged and unlogged; make sure consistent and correctly labeled in final
@@ -729,12 +781,12 @@ ggplot() +
   geom_sf(data = countyLimits, fill = "gray98", color = "gray85", lwd = 0.5) +
   geom_sf(data = tracts, fill = "transparent", color = "gray90") +
   geom_sf(data = finalData, aes(color = dispensaryDistance)) +
-  scale_color_viridis_c("Distance in meters", option = "D", direction = -1) +
+  scale_color_viridis_c("Distance \nin meters", option = "D", direction = -1, label = scales::comma) +
   geom_sf(data = dispensaries, aes(fill = Type), size = 3, shape = 25) +
   scale_fill_manual("", labels = "Dispensary", values = "black") +
   labs(title = "Distance to recreational cannabis dispensary",
        subtitle = "Individual homes with Census tracts and dispensary locations",
-       caption = "Figure X.X") + # TODO: number before finalizing
+       caption = "Fig. X.X") + # TODO: number before finalizing
   mapTheme()
 
 # map distance from nearest highway
@@ -742,10 +794,10 @@ ggplot() +
   geom_sf(data = countyLimits, fill = "gray98", color = "gray95", lwd = 0.5) +
   geom_sf(data = st_crop(coloradoHighways, countyLimits), color = "gray90", lwd = 3) +
   geom_sf(data = finalData, aes(color = highwayDistance)) +
-  scale_color_viridis_c("Distance in meters", option = "E") +
+  scale_color_viridis_c("Distance \nin meters", option = "E", label = scales::comma) +
   labs(title = "Distance from nearest highway",
        subtitle = "Individual homes relative to highway network",
-       caption = "Figure X.X") +
+       caption = "Fig. X.X") +
   mapTheme()
 
 ```
@@ -832,13 +884,15 @@ homes.test <- homes.test %>%
   )
 
 # calculate MAE and MAPE
-errorTable <- data.frame(MAE = mean(homes.test$price.AbsError),
-                         MAPE = mean(homes.test$price.APE))
+errorTable <- data.frame(
+  MAE = scales::dollar(mean(homes.test$price.AbsError), accuracy = 0.01),
+  MAPE = scales::percent(mean(homes.test$price.APE), accuracy = 0.01)
+)
 
 # generate polished table
 errorTable %>%
   kbl(
-    caption = "Mean average and mean absolute percent errors",
+    caption = "Mean absolute error and mean absolute percent error",
     digits = 3,
     format.args = list(big.mark = ",")
   ) %>%
@@ -851,7 +905,7 @@ errorTable %>%
 
 > Provide the results of your cross-validation tests. This includes mean and standard deviation MAE. Do **100 folds** and plot your cross-validation MAE as a histogram. Is your model generalizable to new data?
 
-```{r k-fold cross-validation}
+```{r k-fold cross-validation: histogram}
 
 # perform k-fold cross-validation
 fitControl <- trainControl(method = "cv", number = 100)
@@ -869,13 +923,36 @@ reg.cv <-
   )
 reg.cv
 
-# Plot distribution of MAE
-allMAE <- reg.cv$resample[,3]
-hist(allMAE, breaks = 50)
+# get MAE for all 100 folds
+allMAE.df <- data.frame(MAE = reg.cv$resample[,3])
 
+# plot MAE distribution as histogram
+ggplot() +
+  geom_histogram(data = allMAE.df, 
+                 aes(x = MAE), 
+                 fill = "#fa7800",
+                 color = "#ffffff",
+                 binwidth = 0.002) +
+  scale_x_continuous(breaks = round(seq(min(allMAE.df$MAE), max(allMAE.df$MAE), by = 0.02), 2)) +
+  labs(title = "Distribution of mean absolute error",
+       subtitle = "k-fold cross-validation; k = 100",
+       caption = "Fig. X.X",
+       x = "MAE",
+       y = "Folds") + # TODO: number before finalizing
+  plotTheme()
+```
+
+```{r k-fold cross-validation: table}
 # calculate mean and standard deviation MAE
-mean(allMAE)
-sd(allMAE)
+validationTable <- data.frame(Mean = round(mean(allMAE.df$MAE), 3),
+                              StdDev = round(sd(allMAE.df$MAE), 3))
+
+# generate polished table
+validationTable %>%
+  kbl(
+    caption = "MAE across 100 folds"
+  ) %>%
+  kable_classic(full_width = F)
 
 ```
 
@@ -883,9 +960,102 @@ sd(allMAE)
 
 > Plot predicted prices as a function of observed prices
 
-```{r }
+```{r predicted vs. observed price}
 
-# TODO: create this chart
+# TODO: note low accuracy on the high end in writeup; discuss possible reasons
+
+# plot predicted prices as function of observed prices
+ggplot(data = homes.test, 
+       aes(x=price, 
+           y=price.Predict)) +
+  geom_point(color = "#000000") +
+  geom_abline(color = "#fa7800", size = 1) +
+  geom_smooth(method = "lm", color = "#25cb10") +
+  scale_x_continuous(labels = scales::dollar_format()) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  labs(title = "Predicted sale price as a function of observed price",
+       subtitle = "Orange line represents a perfect prediction; green line represents average prediction",
+       x = "Price",
+       y = "Predicted price") +
+  plotTheme()
+```
+
+```{r predicted vs. observed price: by price, fig.width=10, fig.height=4}
+
+# filter to homes sold for less than $1 million
+homes.test.sub1mil <- homes.test %>%
+  filter(price < 1000000) %>%
+  mutate(
+    price.Error = price.Predict - price,
+    price.AbsError = abs(price.Predict - price),
+    price.APE = (abs(price.Predict - price)/price.Predict)    
+  )
+
+# filter to homes sold for more than $1 million
+homes.test.over1mil <- homes.test %>%
+  filter(price >= 2000000) %>%
+  mutate(
+    price.Error = price.Predict - price,
+    price.AbsError = abs(price.Predict - price),
+    price.APE = (abs(price.Predict - price)/price.Predict)    
+  )
+
+grid.arrange(ncol = 2,
+             ggplot(data = homes.test.sub1mil, 
+                    aes(x=price, 
+                        y=price.Predict)) +
+               geom_point(color = "#000000") +
+               geom_abline(color = "#fa7800", size = 1) +
+               geom_smooth(method = "lm", color = "#25cb10") +
+               scale_x_continuous(labels = scales::dollar_format()) +
+               scale_y_continuous(labels = scales::dollar_format()) +
+               labs(title = "Predicted price as function of observed price, \nhomes under $1 million",
+                    subtitle = "Orange line represents a perfect prediction; \ngreen line represents average prediction",
+                    x = "Price",
+                    y = "Predicted price") +
+               plotTheme(),
+             ggplot(data = homes.test.over1mil, aes(x=price, y=price.Predict)) +
+               geom_point(color = "#000000") +
+               geom_abline(color = "#fa7800", size = 1) +
+               geom_smooth(method = "lm", color = "#25cb10") +
+               scale_x_continuous(labels = scales::dollar_format()) +
+               scale_y_continuous(labels = scales::dollar_format()) +
+               labs(title = "Predicted price as function of observed price, \nhomes over $2 million",
+                    subtitle = "Orange line represents a perfect prediction; \ngreen line represents average prediction",
+                    x = "Price",
+                    y = "Predicted price") +
+               plotTheme()
+             )
+```
+
+```{r MAE and MAPE: by price}
+# calculate MAE and MAPE for less expensive homes
+errorTable.sub1mil <- data.frame(MAE = scales::dollar(mean(homes.test.sub1mil$price.AbsError), accuracy = 0.01),
+                         MAPE = scales::percent(mean(homes.test.sub1mil$price.APE), accuracy = 0.01))
+
+# calculate MAE and MAPE for very expensive homes
+errorTable.over1mil <- data.frame(
+  MAE = scales::dollar(
+    mean(homes.test.over1mil$price.AbsError), accuracy = 0.01),
+  MAPE = scales::percent(mean(homes.test.over1mil$price.APE), accuracy = 0.01))
+
+# generate polished table for less expensive homes
+errorTable.sub1mil %>%
+  kbl(
+    caption = "Mean absolute error and mean absolute percent error, homes under $1 million",
+    digits = 3,
+    format.args = list(big.mark = ",")
+  ) %>%
+  kable_classic(full_width = F, position = "float_left")
+
+# generate polished table for very expensive homes
+errorTable.over1mil %>%
+  kbl(
+    caption = "Mean absolute error and mean absolute percent error, homes over $2 million",
+    digits = 3,
+    format.args = list(big.mark = ",")
+  ) %>%
+  kable_classic(full_width = F, position = "right")
 
 ```
 
@@ -893,12 +1063,37 @@ sd(allMAE)
 
 > Provide a map of your residuals for your **test set**. **Include a Moran’s I test and a plot** of the spatial lag in errors.
 
-```{r Spatial lag test}
+```{r test set residuals}
 
 # --- Residuals ---
 
-# TODO: map residuals for test set
+# map residuals for test set
+ggplot() +
+  geom_sf(data = countyLimits, fill = "gray99") +
+  geom_sf(
+    data = homes.test %>%
+      arrange(price.AbsError),
+    size = 2,
+    aes(color = price.Error, 
+        alpha = price.AbsError),
+  ) +
+  geom_sf(data = munis, fill = "transparent", size = 0.5) +
+  scale_color_gradient("Prediction error",
+                       low = "#fa7800",
+                       high = "#25cb10",
+                       label = scales::dollar_format()) +
+  scale_alpha_continuous(range = c(0.2, 1),
+                         guide = "none") +
+  geom_sf(data = countyLimits, fill = "transparent") +
+  labs(
+    title = "Spatial distribution of prediction errors",
+    subtitle = "Individual homes relative to county and municipal boundaries",
+    caption = "Fig. X.X" # TODO: number figure before finalizing
+  ) +
+  mapTheme()
+```
 
+```{r spatial lag, fig.width=10}
 
 # --- Spatial Lag ---
 
@@ -908,30 +1103,60 @@ neighborList.test <- knn2nb(knearneigh(coords.test, 5))
 # Create spatial weight matrix
 spatialWeights.test <- nb2listw(neighborList.test, style="W")
 
-
-# calculate spatial lag of price and errors
 homes.test <- homes.test %>%
-  mutate(lagPrice = lag.listw(spatialWeights.test, price),
-         lagPriceError = lag.listw(spatialWeights.test, price.Error))
+  mutate(
+    # TODO: confirm this is right
+    lagPrice = lag.listw(spatialWeights.test, price),
+    lagPriceError = lag.listw(spatialWeights.test, price.Error)
+  )
 
-# TODO: display plots side by side using gridarrange? 
-# plot price by spatial lag of price
-ggplot(data = homes.test, aes(x=lagPrice, y=price)) +
-  geom_point(color = "#fa7800") +
-  geom_smooth(method = "lm", color = "#25cb10") +
-  labs(title = "Price as a function of the spatial lag of price",
-       x = "Spatial lag of price (Mean price of 5 nearest neighbors)",
-       y = "Price") +
-  plotTheme()
+# ggplot(data = homes.test, aes(x=lagPrice, y=price)) +
+#   geom_point(color = "#fa7800") +
+#   geom_smooth(method = "lm", color = "#25cb10") +
+#   scale_x_continuous(labels = scales::dollar_format()) +
+#   scale_y_continuous(labels = scales::dollar_format()) +
+#   labs(title = "Price as a function of the spatial lag of price",
+#        x = "Spatial lag of price (Mean price of 5 nearest neighbors)",
+#        y = "Price") +
+#   plotTheme()
+# 
+# 
+# ggplot(data = homes.test, aes(x=lagPriceError, y=price.Error)) +
+#   geom_point(color = "#fa7800") +
+#   geom_smooth(method = "lm", color = "#25cb10") +
+#   scale_x_continuous(labels = scales::dollar_format()) +
+#   scale_y_continuous(labels = scales::dollar_format()) +
+#   labs(title = "Error as a function of the spatial lag of error",
+#        x = "Spatial lag of errors (Mean error of 5 nearest neighbors)",
+#        y = "Error") +
+#   plotTheme()
 
-# plot error by spatial lag of error
-ggplot(data = homes.test, aes(x=lagPriceError, y=price.Error)) +
-  geom_point(color = "#fa7800") +
-  geom_smooth(method = "lm", color = "#25cb10") +
-  labs(title = "Error as a function of the spatial lag of error",
-       x = "Spatial lag of errors (Mean error of 5 nearest neighbors)",
-       y = "Error") +
-  plotTheme()
+
+grid.arrange(ncol = 2,
+             # plot price by spatial lag of price
+             ggplot(data = homes.test, aes(x=lagPrice, y=price)) +
+               geom_point(color = "#fa7800") +
+               geom_smooth(method = "lm", color = "#25cb10") +
+               scale_x_continuous(labels = scales::dollar_format()) +
+               scale_y_continuous(labels = scales::dollar_format()) +
+               labs(title = "Price as function of spatial lag of price",
+                    x = "Spatial lag of price \n(Mean price of 5 nearest neighbors)",
+                    y = "Price") +
+               plotTheme(),
+             # plot error by spatial lag of error
+             ggplot(data = homes.test, aes(x=lagPriceError, y=price.Error)) +
+               geom_point(color = "#fa7800") +
+               geom_smooth(method = "lm", color = "#25cb10") +
+               scale_x_continuous(labels = scales::dollar_format()) +
+               scale_y_continuous(labels = scales::dollar_format()) +
+               labs(title = "Error as function of spatial lag of error",
+                    x = "Spatial lag of errors \n(Mean error of 5 nearest neighbors)",
+                    y = "Error") +
+               plotTheme()
+             )
+```
+
+```{r moran\'s i}
 
 # --- Moran's I ---
 
@@ -945,8 +1170,9 @@ ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
   geom_histogram(binwidth = 0.01) +
   geom_vline(aes(xintercept = moranTest$statistic), colour = "#fa7800",size=1) +
   scale_x_continuous(limits = c(-1, 1)) +
-  labs(title="Observed and permuted Moran's I",
-       subtitle= "Observed Moran's I in orange",
+  labs(title = "Observed and permuted Moran's I",
+       subtitle = "Observed Moran's I in orange",
+       caption = "Fig. X.X",
        x="Moran's I",
        y="Count") +
   plotTheme()
@@ -956,6 +1182,7 @@ ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
 
 ```{r Spatial lag test summary}
 
+# TODO: figure out what on earth is going on here
 left_join(
   st_drop_geometry(homes.test) %>%
     group_by(tract) %>%
@@ -967,7 +1194,10 @@ left_join(
     group_by(tract) %>%
     summarize(meanPrediction = mean(predict.fe))) %>%
   # TODO: add number formatting from other tables
-  kable() %>% kable_classic()
+  kbl(
+    digits = 3,
+    format.args = list(big.mark = ",")
+  ) %>% kable_classic()
 
 ```
 
@@ -1007,18 +1237,20 @@ finalData.predictions <- finalData %>%
 ggplot() +
   geom_sf(data = countyLimits, fill = "gray99") +
   geom_sf(
-    data = finalData.predictions,
-    size = 1,
+    data = finalData.predictions %>%
+      arrange(price.Predict),
+    size = 1.5,
     aes(color = price.Predict), alpha = 0.5
   ) +
   geom_sf(data = munis, fill = "transparent", lwd = 0.5) +
   scale_color_viridis_c("Predicted price",
                        direction = -1, 
-                       option = "D") +
+                       option = "D",
+                       labels = scales::dollar_format()) +
   geom_sf(data = countyLimits, fill = "transparent") +
   labs(
     title = "Spatial distribution of sale prices",
-    subtitle = "Individual homes relative to county and municipality boundaries",
+    subtitle = "Individual homes relative to municipal boundaries",
     caption = "Fig. X.X" # TODO: number figure before finalizing
   ) +
   mapTheme()
@@ -1032,7 +1264,7 @@ ggplot() +
 
 > Using the **test set** predictions, provide a map of mean absolute percentage error (MAPE) by neighborhood.
 
-```{r MAPE by neighborhood: table}
+```{r MAPE by neighborhood: table, fig.width=10}
 
 # 6. NEIGHBORHOOD EFFECTS
 # Calculate a baseline regression without the neighborhoods
@@ -1046,7 +1278,7 @@ summary(reg.baseline)
 homes.test.baseline <-
   homes.test %>%
   dplyr::select(-tract) %>%
-  mutate(Regression = "Baseline regression",
+  mutate(Regression = "No spatial predictor",
          logPrice.Predict = predict(reg.baseline, homes.test), 
          price.Predict = exp(logPrice.Predict),
          price.Error = price.Predict- price,
@@ -1067,34 +1299,66 @@ bothRegressions <- rbind(
   mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error))
   )
 
-# Produce a table comparing non-neighborhood effects of a 'Baseline' regression
-st_drop_geometry(bothRegressions) %>%
-  gather(Variable, Value, -Regression) %>%
-  filter(Variable == "price.AbsError" | Variable == "price.APE") %>%
-  group_by(Regression, Variable) %>%
-    summarize(meanValue = mean(Value, na.rm = T)) %>%
-    spread(Variable, meanValue) %>%
-    kable() %>% kable_classic()
-```
-# set neighborhood geometry
-# nhoods <- tracts %>%
-#   rename(neighborhood = geounit[idx])
-```{r MAPE by neighborhood: map}
+# map MAPE by neighborhood
+# TODO: format map to match others
 st_drop_geometry(bothRegressions) %>%
   group_by(Regression, tract) %>%
   summarize(mean.MAPE = mean(price.APE, na.rm = T)) %>%
   ungroup()%>%
   left_join(tracts) %>%
   st_sf() %>%
+  mutate(Regression = fct_reorder(Regression, mean.MAPE, .desc = T)) %>%
   ggplot() + 
-    geom_sf(aes(fill = mean.MAPE)) +
-    geom_sf(data = bothRegressions, colour = "black", size = .5) +
+    geom_sf(aes(fill = mean.MAPE), color = "gray30", size = 0.2) +
+    geom_sf(data = countyLimits, fill = "transparent", 
+            color = "gray25", size = 0.5) +
+    # geom_sf(data = bothRegressions, colour = "black", size = .5) +
     facet_wrap(~Regression) +
-    scale_fill_gradient(low = palette5[1], high = palette5[5],
-                        name = "MAPE") +
+    scale_fill_viridis_c("MAPE", option = "G", direction = -1, alpha = 0.5) +
+    # scale_fill_gradient(low = palette5[1], high = palette5[5], name = "MAPE") +
     labs(title = "Mean test set MAPE by neighborhood") +
-    labs(title = "Census tracts") +
+    labs(title = "Mean absolute percent error by Census tract",
+         subtitle = "With and without \"neighborhood\" predictor",
+         caption = "Fig. X.X") + # TODO: number before finalizing
     mapTheme()
+
+# # calculate MAE and MAPE
+# errorTable <- data.frame(
+#   MAE = scales::dollar(mean(homes.test$price.AbsError), accuracy = 0.01),
+#   MAPE = scales::percent(mean(homes.test$price.APE), accuracy = 0.01)
+# )
+# 
+# # generate polished table
+# errorTable %>%
+#   kbl(
+#     caption = "Mean absolute error and mean absolute percent error",
+#     digits = 3,
+#     format.args = list(big.mark = ",")
+#   ) %>%
+#   kable_classic(full_width = F)
+```
+```{r MAPE by neighborhood: map, fig.width=10}
+
+# TODO: create this map for other neighborhoods
+
+# Produce a table comparing non-neighborhood effects of a 'Baseline' regression
+# TODO: match formatting to other tables
+st_drop_geometry(bothRegressions) %>%
+  gather(Variable, Value, -Regression, -tract) %>%
+  filter(Variable == "price.AbsError" | Variable == "price.APE") %>%
+  group_by(Regression, Variable) %>%
+    summarize(meanValue = mean(Value, na.rm = T)) %>%
+    spread(Variable, meanValue) %>%
+  mutate(
+    price.AbsError = scales::dollar(price.AbsError, accuracy = 0.01),
+    price.APE = scales::percent(price.APE, accuracy = 0.01)
+  ) %>%
+  arrange(desc(price.AbsError)) %>%
+    kable(
+      digits = 3,
+      format.args = list(big.mark = ",")
+    ) %>% 
+  kable_classic(full_width = F)
 
 ```
 
@@ -1104,17 +1368,24 @@ st_drop_geometry(bothRegressions) %>%
 
 ```{r MAPE by neighborhood: scatterplot}
 
+# plot MAPE by neighborhood as function of mean price by neighborhood
+# TODO: figure out plot order and axis tick labels
 bothRegressions %>%
   dplyr::select(price.Predict, price, Regression) %>%
-    ggplot(aes(price, price.Predict)) +
+  ggplot(aes(price, price.Predict)) +
   geom_point() +
   stat_smooth(aes(price, price), 
              method = "lm", se = FALSE, size = 1, colour="#FA7800") + 
   stat_smooth(aes(price.Predict, price), 
               method = "lm", se = FALSE, size = 1, colour="#25CB10") +
+  # scale_x_continuous(scales::dollar_format()) +
+  # scale_y_continuous(scales::dollar_format()) +
   facet_wrap(~Regression) +
-  labs(title="Predicted sale price as a function of observed price",
-       subtitle="Orange line represents a perfect prediction; Green line represents prediction") +
+  labs(title = "Predicted sale price as a function of observed price",
+       subtitle = "Orange line represents a perfect prediction; Green line represents prediction",
+       caption = "Fig. X.X",
+       x = "Price",
+       y = "Predicted price") +
   plotTheme()
 
 
@@ -1133,12 +1404,25 @@ incomeTest <- tracts %>%
   mutate(incomeContext = if_else(medianIncome < 83019, "Below median income", "Above median income"))
 
 # Plot the income groups division
-grid.arrange(ncol = 1,
-  ggplot() + geom_sf(data = na.omit(incomeTest), aes(fill = incomeContext)) +
-    scale_fill_manual(values = c(palette5[4], palette5[3], palette5[2]), name="Income Context") +
-    #scale_discrete(limits=dat$V1) +
-    labs(title = "Income Context") +
-    mapTheme() + theme(legend.position="bottom"))
+# TODO: figure out WHY the title is centered on this one
+ggplot() +
+  geom_sf(data = incomeTest,
+          aes(fill = incomeContext),
+          color = "gray20",
+          alpha = 0.6,
+          size = 0.2) +
+  scale_fill_manual("Income Context",
+                    values = c("#25cb10", "#fa7800")) +
+  geom_sf(data = countyLimits,
+          fill = "transparent",
+          color = "gray40",
+          size = 0.5) +
+  labs(title = "Classification of Census tracts by income context",
+       subtitle = "Tracts above and below $83,019 median household income in 2019",
+       caption = "Fig. X.X") +
+  mapTheme() + 
+  theme(legend.position="bottom",
+        plot.title = element_text(hjust = 0))
 
 # test generalizability by income context
 st_join(bothRegressions, incomeTest) %>% 
@@ -1146,7 +1430,8 @@ st_join(bothRegressions, incomeTest) %>%
   summarize(mean.MAPE = scales::percent(mean(price.APE, na.rm = T))) %>%
   st_drop_geometry() %>%
   spread(incomeContext, mean.MAPE) %>%
-  kable(., caption = "Test set MAPE by household income context") %>% kable_classic()
+  kable(., caption = "Test set MAPE by household income context") %>% 
+  kable_classic()
 
 
 # Replace with NEW INCOME DATA

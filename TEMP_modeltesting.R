@@ -1,4 +1,4 @@
-regData <- finalData # UPDATE WHEN RUNNING NEW MODEL
+regData <- testData # UPDATE WHEN RUNNING NEW MODEL
 
 # Split data into training (75%) and validation (25%) sets
 inTrain <- createDataPartition(
