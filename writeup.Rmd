@@ -269,7 +269,7 @@ homeIDs <- data %>%
 ```
 ### B. Boundaries to represent neighborhoods
 
-```{r data: neighborhoods}
+```{r data: boundaries}
 # B. --- BOUNDARY DATA ---
 
 # import county limits for later reference
@@ -312,7 +312,7 @@ tractsData <- st_join(homeIDs, tracts) %>%
 
 ### C. American Community Survey demographic and housing data
 
-```{r data: }
+```{r data: american community survey}
 
 # --- C. AMERICAN COMMUNITY SURVEY DATA ---
 
@@ -950,7 +950,8 @@ validationTable <- data.frame(Mean = round(mean(allMAE.df$MAE), 3),
 # generate polished table
 validationTable %>%
   kbl(
-    caption = "MAE across 100 folds"
+    caption = "MAE across 100 folds",
+    digits = 3
   ) %>%
   kable_classic(full_width = F)
 
@@ -980,7 +981,7 @@ ggplot(data = homes.test,
   plotTheme()
 ```
 
-```{r predicted vs. observed price: by price, fig.width=10, fig.height=4}
+```{r predicted vs. observed price: by price, fig.width=12, fig.height=4}
 
 # filter to homes sold for less than $1 million
 homes.test.sub1mil <- homes.test %>%
@@ -1028,7 +1029,8 @@ grid.arrange(ncol = 2,
              )
 ```
 
-```{r MAE and MAPE: by price}
+```{r MAE and MAPE: by price, results='asis'}
+
 # calculate MAE and MAPE for less expensive homes
 errorTable.sub1mil <- data.frame(MAE = scales::dollar(mean(homes.test.sub1mil$price.AbsError), accuracy = 0.01),
                          MAPE = scales::percent(mean(homes.test.sub1mil$price.APE), accuracy = 0.01))
@@ -1093,7 +1095,7 @@ ggplot() +
   mapTheme()
 ```
 
-```{r spatial lag, fig.width=10}
+```{r spatial lag, fig.width=12}
 
 # --- Spatial Lag ---
 
@@ -1264,7 +1266,7 @@ ggplot() +
 
 > Using the **test set** predictions, provide a map of mean absolute percentage error (MAPE) by neighborhood.
 
-```{r MAPE by neighborhood: table, fig.width=10}
+```{r MAPE by neighborhood: map, fig.width=12}
 
 # 6. NEIGHBORHOOD EFFECTS
 # Calculate a baseline regression without the neighborhoods
@@ -1314,7 +1316,7 @@ st_drop_geometry(bothRegressions) %>%
             color = "gray25", size = 0.5) +
     # geom_sf(data = bothRegressions, colour = "black", size = .5) +
     facet_wrap(~Regression) +
-    scale_fill_viridis_c("MAPE", option = "G", direction = -1, alpha = 0.5) +
+    scale_fill_viridis_c("MAPE", option = "G", direction = -1, alpha = 0.5, labels = scales::percent_format()) +
     # scale_fill_gradient(low = palette5[1], high = palette5[5], name = "MAPE") +
     labs(title = "Mean test set MAPE by neighborhood") +
     labs(title = "Mean absolute percent error by Census tract",
@@ -1337,12 +1339,10 @@ st_drop_geometry(bothRegressions) %>%
 #   ) %>%
 #   kable_classic(full_width = F)
 ```
-```{r MAPE by neighborhood: map, fig.width=10}
-
-# TODO: create this map for other neighborhoods
+```{r MAPE by neighborhood: table}
 
 # Produce a table comparing non-neighborhood effects of a 'Baseline' regression
-# TODO: match formatting to other tables
+# TODO: confirm that we don't actually need to do this?!
 st_drop_geometry(bothRegressions) %>%
   gather(Variable, Value, -Regression, -tract) %>%
   filter(Variable == "price.AbsError" | Variable == "price.APE") %>%
@@ -1366,7 +1366,7 @@ st_drop_geometry(bothRegressions) %>%
 
 > Provide a scatterplot plot of MAPE by neighborhood as a function of mean price by neighborhood.
 
-```{r MAPE by neighborhood: scatterplot}
+```{r MAPE by neighborhood: scatterplot, fig.width=12}
 
 # plot MAPE by neighborhood as function of mean price by neighborhood
 # TODO: figure out plot order and axis tick labels
