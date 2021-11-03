@@ -86,15 +86,17 @@ options(knitr.kable.NA = "")
 
 > What is the purpose of this project? Why should we care about it? What makes this a difficult exercise? What is your overall modeling strategy? Briefly summarize your results.
 
-The Zestimate, [Zillow’s algorithm for predicting home values](https://www.zillow.com/how-much-is-my-home-worth/), has increasingly become the predominant reference for buying and selling houses in the real estate market, often being mistaken for an appraisal tool. Consequently, inaccuracies in their model predictions can, now more than ever, [critically affect homeowner’s personal equity](https://www.washingtonpost.com/realestate/zillow-faces-lawsuit-over-zestimate-tool-that-calculates-a-houses-worth/2017/05/09/b22d0318-3410-11e7-b4ee-434b6d506b37_story.html) and undermine reliability in the tool.
+The Zestimate, [Zillow’s algorithm for predicting home values](https://www.zillow.com/how-much-is-my-home-worth/), has increasingly become a predominant reference for the residential real estate market, at times being mistaken for an appraisal tool. Homeowners [sued Zillow in 2017](https://www.washingtonpost.com/realestate/zillow-faces-lawsuit-over-zestimate-tool-that-calculates-a-houses-worth/2017/05/09/b22d0318-3410-11e7-b4ee-434b6d506b37_story.html) for allegedly undervaluing homes and creating an obstacle to their sale. More recently, Zillow [shut down its home-flipping business](https://www.marketwatch.com/story/zillow-to-stop-flipping-homes-for-good-as-it-stands-to-lose-more-than-550-million-will-lay-off-a-quarter-of-staff-11635885027) after incurring more than $550 million in expected losses, with CEO Rich Barton conceding that "the unpredictability in forecasting home prices far exceeds what we anticipated."
 
-Our goal was to develop a Machine Learning pipeline for predicting house prices that is enhanced with additional layers of data, including local features specific to Boulder, Colorado, while also being tested and adjusted for spatial and socio-economic biases to ensure its generalizability, and thus giving it more predictive power.
+Our goal was to develop a machine learning pipeline to predict home prices in Boulder County, Colorado, enhancing our model with open data on local features in addition to characteristics of the homes themselves, while also testing and adjusting the model for spatial and socioeconomic biases to ensure generalizability and strengthen its predictive power.
 
-However, this task presents two important challenges. First, we are not taking into account any previous sales or tax assessment data that could better inform our model. Second, we are conducting this analysis in Boulder County in Colorado, a county that is not itself a coherent urban unit but rather is composed of Denver’s outer suburbs, medium-sized towns and almost half of its area covered in forest. Furthermore, Boulder is a very homogeneous and particular county, with a 91% white population, a median income of \$81,390 (compared to \$62,843 nation-wide) and 61% of people 25 or older with higher education (compared to 31% nation-wide) in 2019 estimates.
+However, this task presented two important challenges. First, we did not take into account any previous sales or tax assessment data that could better inform our model. Second, we are conducting this analysis in Boulder County, Colorado, a county that is not itself a coherent urban unit but rather is composed of Denver’s outer suburbs, medium-sized towns and almost half of its area covered in forest. Furthermore, Boulder is a very homogeneous and particular county, with a 91% white population, a median income of \$81,390 (compared to \$62,843 nationwide) and 61% of people 25 or older with a bachelor's degree or higher (compared to 31% nation-wide) in 2019 estimates.
 
-We implemented a Linear Regression supervised Machine Learning model for predicting house prices (explained in more detail in part 3). We built up a pipeline where we can input data (we have previously cleaned and wrangled), evaluate it, take it out or leave it depending on its usefulness, process it and test it on home samples we have set apart for predicting, while getting metrics on the current effectiveness of the model. Each version of the model was saved separately and its effectiveness logged, so it can be plugged in or out as needed. This process can be then repeated many times until the best possible is obtained.
+We implemented a linear regression-based supervised machine learning model for predicting house prices (explained in more detail in part 3). We built up a pipeline to clean, wrangle, and merge data from various sources; evaluate it, taking out or leaving data elements depending on their usefulness; and testing it for accuracy, obtaining metrics on the efficacy of each model iteration. We repeated the process numerous times to refine the model and obtain the most accurate and generalizable possible results.
 
-> Briefly summarize your results
+Ultimately, we were able to create a model that predicted home prices fairly well across the board, with a mean average percent error (MAPE) solidly under 15 percent. The model performed very well on homes sold for under \$1 million, which represented the majority of homes sold. Its most glaring shortcomings were at the very high end of the home price distribution, with MAPE approaching 40 percent for homes sold for more than \$2 million. These homes constituted a small minority of the sample, but the size of the errors points to the need for more refinement before this model could be considered production-ready.
+
+We believe this model is a promising first step toward accurately predicting home prices in Boulder County, but further work is necessary to improve its accuracy on the high end of the price range to reduce the risk of further litigation and negative publicity arising from multi-million-dollar prediction errors for the county's most expensive homes.
 
 # Data
 
@@ -105,14 +107,18 @@ We implemented a Linear Regression supervised Machine Learning model for predict
 We structured the data gathering process into five groups, according to their origin and function:
 
 + A. The base home features provided by the client, including the price dependent variable.
-+ B. Boundaries data, related to county limits, municipalities, neighborhoods, zoning, etc.
-+ C. Census data from the 2019 ACS, including home ownership and vacancy rates, education, income and demographics on the block group level.
-+ D. Other open data, including FEMA, municipal services or amenities and crime data, if pertinent.
-+ E. “Experimental” data, meaning variables like location of recreational cannabis dispensaries or distance to major highways, that are not conventionally associated with house prices.
++ B. Boundary data, including county limits, municipal boundaries, neighborhoods, zoning, and the Census tract boundaries ultimately used as a proxy for neighborhoods.
++ C. Census data from the 2019 American Community Survey (ACS), including home ownership and vacancy rates, education, income and demographics on the block group level.
++ D. Open data related to local amenities or disamenities; we ultimately focused on data related to the risks of adverse events whose frequency is projected to grow as climate change progresses, including wildfire history and FEMA flood risk ratings.
++ E. “Experimental” open data, including proximity to recreational cannabis dispensaries, major highways, and Whole Foods Market stores.
 
-Given the richness of data from A and C, the data wrangling process focused on selecting **what data is relevant** for predicting house prices and which new variables could be produced from this raw data, and the results were ready to use. On the other hand, B and D were conditioned by **what data is available** and involved a more intensive understanding of the data, determining parameters on how to measure its possible effects on home prices. Data in the E group was treated more akin to that of B and D, but with a looser expectation of what its effects could be.
+Given the richness of data from A and C, the data wrangling process focused on selecting **what data was relevant** for predicting house prices and engineering the most predictive possible features from the raw data. On the other hand, B and D were conditioned by **what data is available** and involved a more intensive understanding of the data, determining parameters on how to measure its possible effects on home prices. Data in the E group was treated more akin to that of B and D, but with a looser expectation of what its effects could be.
 
 ### A. Home value data
+
+We cleaned and recoded the home-level data provided by the assessor's office to remove missing values and engineer new features that resulted in more accurate predictions. We excluded a handful of homes whose records we determined to contain data entry errors, like one home listed in the data as sold for \$31.5 million whose online listing showed an actual sale price of \$315,000. This data set enabled some of our highest-impact feature engineering, including **recoding the quality variable** from an ordinal variable -- with categories ranging from "Low" to "Exceptional 2" -- to a numeric 16-point quality score, and **recoding the year built** from a continuous numeric variable to a categorical "era" variable -- with values from "Pre-1910" to "2020s" -- to account for the nonlinear effect of home age on price.
+
+Because the distribution of home prices was extremely skewed -- that is, most homes sold for prices relatively close to the $745,787 mean, but there was a longer "tail" of extremely high-priced homes than of low-priced ones -- we used a log transformation to normalize the home price variable for our linear regression. After running the regression, we reversed the log transformation to generate the predicted price in dollars.
 
 ```{r data: homes}
 
@@ -269,6 +275,9 @@ homeIDs <- data %>%
 ```
 ### B. Boundaries to represent neighborhoods
 
+To account for the effect of spatial autocorrelation -- that is, the tendency of things located closer to each other in space to be more similar than things located farther apart -- we incorporated a "neighborhood" feature into our model. At first, we developed a set of boundaries to subdivide the county by combining municipal boundaries, an open data set defining "subcommunities" for the city of Boulder, and county-level zoning districts for unincorporated areas. Ultimately, however, we found that our model performed better -- and produced lower variance between geographic areas -- when we simply used Census tract boundaries as a proxy for neighborhoods.
+
+
 ```{r data: boundaries}
 # B. --- BOUNDARY DATA ---
 
@@ -312,9 +321,17 @@ tractsData <- st_join(homeIDs, tracts) %>%
 
 ### C. American Community Survey demographic and housing data
 
+Since we used Census tract boundaries as the spatial unit of analysis, we chose to use block group-level data for our demographic and socioeconomic features. This decision somewhat limited our choice of variables, since not all Census or ACS data is available at the block group level for privacy reasons, but had the benefit of greater spatial granularity and let us attempt to distinguish the effect of the demographic variables from the effects of being in a certain Census tract. 
+
+#### TODO: mention something about specific variables?
+
+A future iteration of this model might experiment with using a spatial interpolation method like [inverse distance weighting](https://en.wikipedia.org/wiki/Inverse_distance_weighting) to attempt to estimate the spatial distribution of demographic or socioeconomic characteristics within a block group or Census tract, with the hypothesis that regions closer to the edges of a block group might more closely resemble neighboring block groups, and/or that the value of those homes might also be affected by the characteristics of nearby areas.
+
 ```{r data: american community survey}
 
 # --- C. AMERICAN COMMUNITY SURVEY DATA ---
+
+# TODO: remove non-200k+ income variables
 
 # review available variables
 # acsVariableList <- load_variables(year,"acs5", cache = TRUE)
