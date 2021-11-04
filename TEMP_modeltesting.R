@@ -7,7 +7,7 @@ inTrain <- createDataPartition(
     # regData$basement, 
     # egData$acType, 
     regData$heatingType, 
-    regData$extWall, 
+    # regData$extWall, 
     regData$extWall2, 
     # regData$roofType,
     regData$tractID
