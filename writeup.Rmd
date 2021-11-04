@@ -86,7 +86,7 @@ options(knitr.kable.NA = "")
 
 > What is the purpose of this project? Why should we care about it? What makes this a difficult exercise? What is your overall modeling strategy? Briefly summarize your results.
 
-The Zestimate, [Zillow’s algorithm for predicting home values](https://www.zillow.com/how-much-is-my-home-worth/), has increasingly become a predominant reference for the residential real estate market, at times being mistaken for an appraisal tool. Homeowners [sued Zillow in 2017](https://www.washingtonpost.com/realestate/zillow-faces-lawsuit-over-zestimate-tool-that-calculates-a-houses-worth/2017/05/09/b22d0318-3410-11e7-b4ee-434b6d506b37_story.html) for allegedly undervaluing homes and creating an obstacle to their sale. More recently, Zillow [shut down its home-flipping business](https://www.marketwatch.com/story/zillow-to-stop-flipping-homes-for-good-as-it-stands-to-lose-more-than-550-million-will-lay-off-a-quarter-of-staff-11635885027) after incurring more than $550 million in expected losses, with CEO Rich Barton conceding that "the unpredictability in forecasting home prices far exceeds what we anticipated."
+The Zestimate, [Zillow’s algorithm for predicting home values](https://www.zillow.com/how-much-is-my-home-worth/), has become an influential fixture of the residential real estate market, at times being mistaken for an appraisal tool. Homeowners [sued Zillow in 2017](https://www.washingtonpost.com/realestate/zillow-faces-lawsuit-over-zestimate-tool-that-calculates-a-houses-worth/2017/05/09/b22d0318-3410-11e7-b4ee-434b6d506b37_story.html) for allegedly undervaluing homes and creating an obstacle to their sale. More recently, Zillow [shut down its home-flipping business](https://www.marketwatch.com/story/zillow-to-stop-flipping-homes-for-good-as-it-stands-to-lose-more-than-550-million-will-lay-off-a-quarter-of-staff-11635885027) after incurring more than $550 million in expected losses, with CEO Rich Barton conceding that "the unpredictability in forecasting home prices far exceeds what we anticipated."
 
 Our goal was to develop a machine learning pipeline to predict home prices in Boulder County, Colorado, enhancing our model with open data on local features in addition to characteristics of the homes themselves, while also testing and adjusting the model for spatial and socioeconomic biases to ensure generalizability and strengthen its predictive power.
 
@@ -366,7 +366,7 @@ acsVars <- c("B02001_001E", # race: total
            'B19001_014E', # household income: $100-125k
            'B19001_015E', # household income: $125-150k
            'B19001_016E', # household income: $150-200k
-           'B19001_017E') # household income: $200 or more
+           'B19001_017E') # household income: $200k or more
 
 # import variables from ACS 2019 5-year
 blockGroups <- 
@@ -437,16 +437,18 @@ blockGroups <-
          pctIncome125 = income125/incomeTotal,
          pctIncome150 = income150/incomeTotal,
          pctIncome200 = income200/incomeTotal,
-         # recode final income features after exploratory analysis 
+         # recode most predictive income features after exploratory analysis 
          pctIncomeBelow100k = (
-           income000 + income010 + income015 + income020 + income025 + 
-             income030 + income035 + income040 + income045 + income050 + 
+           income000 + income010 + income015 + income020 + income025 +
+             income030 + income035 + income040 + income045 + income050 +
              income060 + income075
            )/incomeTotal,
          pctIncomeAbove200k = pctIncome200
         ) %>%
+  # select final ACS features
+  # TODO: see if removing some improves model?
   select(GEOID, pctWhite, pctVacant, pctOwnerOccupied, pctHigherEdu, 
-         pctIncomeBelow100k, pctIncomeAbove200k, geometry) %>%
+         pctIncomeAbove200k, geometry) %>%
   rename(blockGroup = GEOID) %>%
   st_transform(boulderCRS)
 
@@ -461,6 +463,11 @@ censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
 ```
 
 ### D. Climate risk-related open data
+
+To account for the possible effect of environmental disaster risk on home values, we incorporated **wildfire history** and **flood risk** into our model. We experimented with multiple iterations of the wildfire feature and found that the _number of wildfires within a two-mile radius of a home within the last 20 years_ was more predictive than whether or not a home was in an area that had burned, or a home's distance from the closest recent wildfire.
+
+For flood risk, we relied on the Federal Emergency Management Agency (FEMA) flood insurance rating scheme to assign each home a flood risk rating from 0 to 2, representing minimal, low to moderate, and high risk. Under this system, homeowners in a "high" risk zone are required to purchase flood insurance and those in a "low to moderate" have the option to purchase it. We hypothesized that the additional cost to the homeowner of needing to purchase flood insurance might be priced into home values regardless of the buyer's sensitivity to risk.
+
 
 ```{r data: climate risk}
 # D. --- CLIMATE RISK OPEN DATA ---
@@ -515,6 +522,8 @@ floodData <- floodRecode %>%
 
 ### E. Experimental open data
 
+Finally, we incorporated three "experimental" features whose potential effect we were uncertain of, but which we thought were potentially interesting. First, since Colorado was one of the first states nationally to legalize recreational cannabis, we drew from a countywide data set of marijuana licenses to obtain the locations of recreational dispensaries (as distinct from growing operations, medical clinics, and other types of establishment also included in the data set). Second, we geocoded the locations of Whole Foods Market stores, which have been described as [the Lewis and Clark of gentrification](https://www.smartcitiesdive.com/ex/sustainablecitiescollective/whole-foods-lewis-and-clark-gentrification/181221/). Finally, we included distance from major highways, which has the potential to affect home values in two ways: on one hand, a location very close to a highway is associated with poor air quality and noise pollution; on the other hand, being "close but not _too_ close" could be desirable from a commuting standpoint.
+
 ```{r data: experimental open data}
 
 # --- E. EXPERIMENTAL OPEN DATA ---
@@ -558,6 +567,7 @@ coloradoHighways <- st_read('HighwaysByFunctionalClass.geojson') %>%
   st_union(.)
 
 # calculate distance from highways and save
+# TODO: log transform after all?
 highwayData <- homeIDs %>%
   mutate(highwayDistance = drop_units(st_distance(., coloradoHighways))) %>%
   st_drop_geometry()
@@ -578,6 +588,8 @@ finalData <- left_join(homeData, censusData) %>%
 ## Summary Statistics
 
 > Present a table of summary statistics with variable descriptions. Sort these variables by their category (internal characteristics, amenities/public services or spatial structure). Check out the `stargazer` package for this.
+
+Here is a table of summary statistics for the numeric variables in our final data set.
 
 ```{r summary statistics, results = "asis"}
 
@@ -610,6 +622,10 @@ stargazer(summaryStatsData, type = "html")
 
 > Present a correlation matrix
 
+The correlation matrix shows the strength of the correlation between each of our numeric variables is to each of the others. As we refined our model, we were surprised to fined that excluding collinear variables -- that is, variables strongly correlated with others in the model -- hurt, rather than helped, the accuracy of our predictions.
+
+Our research into this suggested that multicollinearity is most damaging when attempting to isolate the effect of any one predictor on a dependent variable, which was not a concern here. We found a range of opinions online about the extent to which multicollinearity causes problems in a machine learning context, but ultimately chose to worry less about multicollinearity than about accuracy for the purposes of this model.
+
 ```{r correlation matrix, fig.width=8, fig.height=8}
 
 # select numeric variables
@@ -641,11 +657,13 @@ ggcorrplot(
 
 > Present 4 home price correlation scatterplots that you think are of interest. I’m going to look for **interesting open data** that you’ve integrated with the home sale observations.
 
+### TODO: briefly summarize scatterplots
+
 ```{r correlation scatterplots, fig.width=10}
 
 # TODO: select four variables to plot:
 # probably pctIncomeAbove200k, pctHigherEdu, wildfireHistory, floodRisk?
-correlationVars <- c("pctHigherEdu", "pctIncomeAbove200k", "pctIncomeBelow100k", "wildfireHistory", "floodRisk")
+correlationVars <- c("qualityNum", "pctHigherEdu", "pctIncomeAbove200k", "wildfireHistory", "floodRisk")
 
 # create scatterplots
 st_drop_geometry(finalData) %>%
@@ -665,9 +683,11 @@ st_drop_geometry(finalData) %>%
 
 > Develop 1 map of your dependent variable (sale price)
 
-``` {r spatial distribution of sale prices, fig.width = 10}
+#### TODO: decide whether to use big or side-by-side versions; if using big, maybe show individual homes before tracts?
 
-# TODO: display these side by side with gridxtra?
+#### TODO: briefly describe spatial distribution?
+
+``` {r spatial distribution of sale prices, fig.width = 10}
 
 # --- 1. sale price by Census tract ---
 
@@ -778,6 +798,8 @@ grid.arrange(ncol = 2,
 
 > Develop 3 maps of 3 of your most interesting independent variables.
 
+#### TODO: briefly describe maps
+
 ```{r spatial distribution of predictors}
 
 # map wildfires in last 20 years
@@ -828,13 +850,13 @@ ggplot() +
 
 > Briefly describe your method (remember who your audience is).
 
-Developing and refining a Machine Learning model is not a linear process but rather a cyclical one. Nevertheless, there is a series of continuous steps that are laid out to test each version of the model.
+Developing and refining a machine learning model is not a linear process, but rather a cyclical and iterative one. Nevertheless, there is a series of continuous steps that are laid out to test each version of the model.
 
 First, we look into the correspondence (or _correlation_) between the sample home prices and each of the input (or _dependent_) variables. We visualize this as individual scatter plots or as an overall matrix diagram that summarizes correlations among all variables, so we can get an initial sense of which data is useful and which is too redundant.
 
 Second, we perform a linear regression: a method for determining how much home prices change by each additional unit of the input variables, informing us of not only their individual effectiveness but also of their aggregate power. This way we can further evaluate which data should make it into our model.
 
-The next step, cross validation, divides the data into two groups: a ‘training’ set that establishes the coefficients between variables and known house prices, and a ‘test’ set on which to predict house prices using these coefficients. By comparing the predicted values with the real ones, we measure the amount of error in our model, meaning **_how wrong_** our predictions are, or alternatively, **_how precisely_** can our model predict. At this point we also check for _outliers_ that may have a significantly extreme error in price and, using other tools like Google Maps, we assess if they should be excluded from our model.
+The next step, cross-validation, divides the data into two groups: a ‘training’ set that establishes the coefficients between variables and known house prices, and a ‘test’ set on which to predict house prices using these coefficients. By comparing the predicted values with the real ones, we measure the amount of error in our model, meaning **_how wrong_** our predictions are, or alternatively, **_how precisely_** can our model predict. At this point we also check for _outliers_ that may have a significantly extreme error in price and, using other tools like Google Maps, we assess if they should be excluded from our model.
 
 On top of that, we test our model in various ways to check whether it predicts significantly better in some places than in others, by looking for errors clustered in space. The first test, called _spatial lag_, averages the price error of each sample with its neighbors. The second one, _Moran’s I_, is used to prove that there is an underlying spatial structure that clusters together similar prices, instead of prices just being randomly distributed. Finally, we check for _neighborhood effects_, comparing the amount of error if neighborhoods are accounted for or not.
 
@@ -959,7 +981,7 @@ ggplot() +
   plotTheme()
 ```
 
-```{r k-fold cross-validation: table}
+```{r k-fold cross-validation: table, results = "asis"}
 # calculate mean and standard deviation MAE
 validationTable <- data.frame(Mean = round(mean(allMAE.df$MAE), 3),
                               StdDev = round(sd(allMAE.df$MAE), 3))
@@ -1046,7 +1068,7 @@ grid.arrange(ncol = 2,
              )
 ```
 
-```{r MAE and MAPE: by price, results='asis'}
+```{r MAE and MAPE: by price, results="asis"}
 
 # calculate MAE and MAPE for less expensive homes
 errorTable.sub1mil <- data.frame(MAE = scales::dollar(mean(homes.test.sub1mil$price.AbsError), accuracy = 0.01),
@@ -1380,6 +1402,8 @@ st_drop_geometry(bothRegressions) %>%
 ```
 
 ### Scatterplot
+
+#### TODO: create this scatterplot - the one below is something else!
 
 > Provide a scatterplot plot of MAPE by neighborhood as a function of mean price by neighborhood.
 
