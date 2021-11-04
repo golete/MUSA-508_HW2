@@ -11,6 +11,7 @@ output:
 ## Boulder, Colorado.
 
 #### Elisabeth Ericson & Adrián León
+.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F)
