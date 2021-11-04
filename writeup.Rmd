@@ -818,13 +818,11 @@ grid.arrange(ncol = 2,
   mapTheme()
 )
 
-
-
-
 ```
+
+
 ***
 
-<<<<<<< HEAD
 
 ##### Spatial Distribution of Predictors
 
@@ -832,15 +830,6 @@ grid.arrange(ncol = 2,
 Three of the potential predictors of interest that we considered initially were the distribution of historical wildfires, of marijuana dispensaries and distance to highways.
 
 
-=======
-
-##### Spatial Distribution of Predictors
-
-
-> TODO: briefly describe all three maps
-
-
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 ```{r spatial distribution of predictors: wildfires}
 
 # map wildfires in last 20 years
@@ -855,17 +844,8 @@ Three of the potential predictors of interest that we considered initially were 
   mapTheme()
 ```
 
-<<<<<<< HEAD
-
 > TODO: briefly describe wildfires map
 
-
-=======
-
-> TODO: briefly describe wildfires map
-
-
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 ```{r spatial distribution of predictors: dispensaries}
 
 # map distance to dispensaries
@@ -886,6 +866,7 @@ ggplot() +
 
 > TODO: briefly describe dispensaries map
 
+
 ```{r spatial distribution of predictors: highways}
 
 # map distance from nearest highway
@@ -901,19 +882,12 @@ ggplot() +
 
 ```
 
-> TODO: briefly describe dispensaries map
-<<<<<<< HEAD
+> TODO: briefly describe highways map
+
 
 
 ***
 
-
-
-
-=======
-
-
-***
 
 
 ##### Additional Visualizations
@@ -924,7 +898,6 @@ ggplot() +
 ***
 
 
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 ### Methods
 
 
@@ -987,13 +960,6 @@ reg.training <- lm(logPrice ~ .,
 
 ```
 
-<<<<<<< HEAD
-=======
-
-***
-
-##### MAE and MAPE
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 
 ***
 
@@ -1036,11 +1002,9 @@ errorTable %>%
 ***
 
 ##### Cross-Validation Results
-<<<<<<< HEAD
+
 
 We perform a Leave One Group Out Cross Validation (LOGO-CV), meaning to take one out of a hundred groups of samples, training the model on the other 99 and testing it on the one left out, and then repeating the process by taking out each of the other 99 one at a time.
-=======
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 
 The distribution of the 100 Mean Average Errors looks like this:
 
@@ -1098,15 +1062,6 @@ validationTable %>%
 
 ```
 
-<<<<<<< HEAD
-=======
-
-
-
-##### Predicted vs. Observed Prices
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
-
-
 
 ##### Predicted vs. Observed Prices
 
@@ -1132,11 +1087,9 @@ ggplot(data = homes.test,
   plotTheme()
 ```
 
-<<<<<<< HEAD
+
 The lines are close but it is still far from perfect. However, if isolate the homes with prices *below* \$1 Million it is evident that our prediction is much closer to their real value. On the other hand, if we just consider houses with prices *above* \$2 Million, we see that our model performs more poorly.
 
-=======
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 
 ```{r predicted vs. observed price: by price, fig.width=12, fig.height=4}
 
@@ -1186,12 +1139,8 @@ grid.arrange(ncol = 2,
              )
 ```
 
-<<<<<<< HEAD
 In addition, the mean average error and mean average percentage error for these two 'price groups' are the following: 
-=======
 
-```{r MAE and MAPE: by price, results="asis"}
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 
 ```{r MAE and MAPE: by price, results="asis"}
 
@@ -1253,7 +1202,6 @@ ggplot() +
 ```
 
 As we can notice, the greatest price errors (variations in color from white) occur in mostly in the more expensive houses (with a larger circle).
-
 
 Next, if we look into the relation between the price and spatial lag of price, and price error and spatial lag of price error we get the following scatter plots:
 
@@ -1350,14 +1298,6 @@ left_join(
 
 ```
 
-<<<<<<< HEAD
-=======
-
-***
-
-##### Map of Predicted Values
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
-
 ***
 
 ##### Map of Predicted Values
@@ -1418,14 +1358,6 @@ ggplot() +
 ***
 
 ##### Mean Absolute Percentage Error by Neighborhood
-
-<<<<<<< HEAD
-
-=======
-##### Mean Absolute Percentage Error by Neighborhood
-
-###### Map
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 
 Using the **test set** predictions we provide a map of mean absolute percentage error (MAPE) by neighborhood, comparing our baseline model, without accounting for neighborhoods boundaries, and our final model that includes neighborhoods.
 
@@ -1513,17 +1445,12 @@ st_drop_geometry(bothRegressions) %>%
 
 ```
 
-<<<<<<< HEAD
+
 And also compare the performance of both models by the relation in each between actual home prices and predicted home prices:
 
 
 ```{r maps: baseline and neighborhood comparison 2}
-=======
-###### MAPE as a function of price by neighborhoods
 
-```{r MAPE by neighborhood: scatterplot, fig.width=12}
-
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 # plot MAPE by neighborhood as function of mean price by neighborhood
 bothRegressions %>%
   dplyr::select(price.Predict, price, Regression) %>%
@@ -1563,11 +1490,6 @@ homes.test %>%
   plotTheme()
 
 ```
-
-<<<<<<< HEAD
-=======
-##### Generalizability Across Groups
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 
 ***
 
@@ -1619,21 +1541,11 @@ st_join(bothRegressions, incomeTest) %>%
   kable_classic(full_width = F, position = "center")
 ```
 
-<<<<<<< HEAD
-
 
 ***
 
 
 ### Discussion
-
-=======
-***
-
-
-### Discussion
-
->>>>>>> 47adcd0fb4195e9ec7c62702f95c16b2a6272c7b
 
 We consider this to be an effective model because by just using open, easy to access data, it can predict home prices in Boulder County with a confidence of _____ . 
 
