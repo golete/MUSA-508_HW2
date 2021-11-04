@@ -82,9 +82,8 @@ options(scipen = 999)
 options(knitr.kable.NA = "")
 ```
 
-# Introduction
+### Introduction
 
-> What is the purpose of this project? Why should we care about it? What makes this a difficult exercise? What is your overall modeling strategy? Briefly summarize your results.
 
 The Zestimate, [Zillow’s algorithm for predicting home values](https://www.zillow.com/how-much-is-my-home-worth/), has become an influential fixture of the residential real estate market, at times being mistaken for an appraisal tool. Homeowners [sued Zillow in 2017](https://www.washingtonpost.com/realestate/zillow-faces-lawsuit-over-zestimate-tool-that-calculates-a-houses-worth/2017/05/09/b22d0318-3410-11e7-b4ee-434b6d506b37_story.html) for allegedly undervaluing homes and creating an obstacle to their sale. More recently, Zillow [shut down its home-flipping business](https://www.marketwatch.com/story/zillow-to-stop-flipping-homes-for-good-as-it-stands-to-lose-more-than-550-million-will-lay-off-a-quarter-of-staff-11635885027) after incurring more than $550 million in expected losses, with CEO Rich Barton conceding that "the unpredictability in forecasting home prices far exceeds what we anticipated."
 
@@ -98,11 +97,15 @@ Ultimately, we were able to create a model that predicted home prices fairly wel
 
 We believe this model is a promising first step toward accurately predicting home prices in Boulder County, but further work is necessary to improve its accuracy on the high end of the price range to reduce the risk of further litigation and negative publicity arising from multi-million-dollar prediction errors for the county's most expensive homes.
 
-# Data
 
-## Data Collection
+***
 
-> Briefly describe your methods for gathering the data.
+
+### Data
+
+#### Data Collection
+
+
 
 We structured the data gathering process into five groups, according to their origin and function:
 
@@ -114,7 +117,7 @@ We structured the data gathering process into five groups, according to their or
 
 Given the richness of data from A and C, the data wrangling process focused on selecting **what data was relevant** for predicting house prices and engineering the most predictive possible features from the raw data. On the other hand, B and D were conditioned by **what data is available** and involved a more intensive understanding of the data, determining parameters on how to measure its possible effects on home prices. Data in the E group was treated more akin to that of B and D, but with a looser expectation of what its effects could be.
 
-### A. Home value data
+##### A. Home value data
 
 We cleaned and recoded the home-level data provided by the assessor's office to remove missing values and engineer new features that resulted in more accurate predictions. We excluded a handful of homes whose records we determined to contain data entry errors, like one home listed in the data as sold for \$31.5 million whose online listing showed an actual sale price of \$315,000. This data set enabled some of our highest-impact feature engineering, including **recoding the quality variable** from an ordinal variable -- with categories ranging from "Low" to "Exceptional 2" -- to a numeric 16-point quality score, and **recoding the year built** from a continuous numeric variable to a categorical "era" variable -- with values from "Pre-1910" to "2020s" -- to account for the nonlinear effect of home age on price.
 
@@ -273,7 +276,8 @@ homeData <- homeRecodes %>%
 homeIDs <- data %>%
   dplyr::select(MUSA_ID, geometry)
 ```
-### B. Boundaries to represent neighborhoods
+
+##### B. Boundaries to represent neighborhoods
 
 To account for the effect of spatial autocorrelation -- that is, the tendency of things located closer to each other in space to be more similar than things located farther apart -- we incorporated a "neighborhood" feature into our model. At first, we developed a set of boundaries to subdivide the county by combining municipal boundaries, an open data set defining "subcommunities" for the city of Boulder, and county-level zoning districts for unincorporated areas. Ultimately, however, we found that our model performed better -- and produced lower variance between geographic areas -- when we simply used Census tract boundaries as a proxy for neighborhoods.
 
@@ -292,7 +296,38 @@ munis <- st_read('Municipalities.geojson') %>%
   st_transform(boulderCRS)
 
 # B1. "Neighborhoods" created from open data
-# TODO: add other neighborhood code
+
+# B1.1. Boulder city and other cities/zones boundaries
+zones <- st_read('Zoning_-_Zoning_Districts.geojson') %>%
+  st_transform(boulderCRS) %>%
+  dplyr::select(ZONEDESC, geometry) %>%
+  filter(ZONEDESC != 'Boulder') %>%
+  group_by(ZONEDESC) %>%
+  rename(SUBCOMMUNITY = ZONEDESC) %>%
+  summarize(geometry = st_union(geometry))
+
+# B1.2. Boulder City Zoning Districts
+districts <- st_read('Zoning_Districts.geojson') %>%
+  st_transform(boulderCRS) %>%
+  dplyr::select(OBJECTID, ZONING, ZNDESC, geometry)
+
+# B1.3. Load the subcommunities / neighborhoods rough boundaries
+subcomms <-  st_read('Subcommunities.geojson') %>%
+  st_transform(boulderCRS)
+
+# B1.4. Join the region zoning polygons with the subcommunities polygons and union
+cityHoods <- st_join(districts, subcomms, largest=TRUE) %>%
+  dplyr::select(SUBCOMMUNITY, geometry) %>%
+  group_by(SUBCOMMUNITY) %>%
+  summarize(geometry = st_union(geometry))
+
+# B1.5. FINAL NEIGHBORHOOD DATA TO USE
+neighborhoods <- rbind(zones, cityHoods) %>%
+  rename(community = SUBCOMMUNITY)
+
+neighborhoodData <- st_join(homeIDs, neighborhoods) %>%
+  distinct(.,MUSA_ID, .keep_all = TRUE) %>%
+  st_drop_geometry() 
 
 
 # B2. Census tracts
@@ -319,11 +354,11 @@ tractsData <- st_join(homeIDs, tracts) %>%
 
 ```
 
-### C. American Community Survey demographic and housing data
+##### C. American Community Survey demographic and housing data
 
 Since we used Census tract boundaries as the spatial unit of analysis, we chose to use block group-level data for our demographic and socioeconomic features. This decision somewhat limited our choice of variables, since not all Census or ACS data is available at the block group level for privacy reasons, but had the benefit of greater spatial granularity and let us attempt to distinguish the effect of the demographic variables from the effects of being in a certain Census tract. 
 
-#### TODO: mention something about specific variables?
+###### TODO: mention something about specific variables?
 
 A future iteration of this model might experiment with using a spatial interpolation method like [inverse distance weighting](https://en.wikipedia.org/wiki/Inverse_distance_weighting) to attempt to estimate the spatial distribution of demographic or socioeconomic characteristics within a block group or Census tract, with the hypothesis that regions closer to the edges of a block group might more closely resemble neighboring block groups, and/or that the value of those homes might also be affected by the characteristics of nearby areas.
 
@@ -1102,7 +1137,7 @@ errorTable.over1mil %>%
 
 ## Residuals, Moran's I, and Spatial Lag
 
-> Provide a map of your residuals for your **test set**. **Include a Moran’s I test and a plot** of the spatial lag in errors.
+We can visualize the distribution of the errors on our test in the following map: 
 
 ```{r test set residuals}
 
@@ -1110,29 +1145,35 @@ errorTable.over1mil %>%
 
 # map residuals for test set
 ggplot() +
-  geom_sf(data = countyLimits, fill = "gray99") +
+  geom_sf(data = tracts, fill = "#2f2f2f") +
   geom_sf(
     data = homes.test %>%
       arrange(price.AbsError),
-    size = 2,
-    aes(color = price.Error, 
-        alpha = price.AbsError),
+    aes(color = price.Error,
+        alpha = price.AbsError,
+        size = price),
   ) +
   geom_sf(data = munis, fill = "transparent", size = 0.5) +
-  scale_color_gradient("Prediction error",
+  scale_color_gradient2("prediction error",
                        low = "#fa7800",
+                       mid = "#ffffff",
                        high = "#25cb10",
                        label = scales::dollar_format()) +
-  scale_alpha_continuous(range = c(0.2, 1),
+  scale_alpha_continuous(range = c(0.2, 0.5),
                          guide = "none") +
   geom_sf(data = countyLimits, fill = "transparent") +
   labs(
     title = "Spatial distribution of prediction errors",
-    subtitle = "Individual homes relative to county and municipal boundaries",
+    subtitle = "Individual homes relative to county and census tract boundaries",
     caption = "Fig. X.X" # TODO: number figure before finalizing
   ) +
   mapTheme()
 ```
+
+As we can notice, the greatest price errors (variations in color from white) occur in mostly in the more expensive houses (with a larger circle).
+
+
+Next, if we look into the relation between the price and spatial lag of price, and price error and spatial lag of price error we get the following scatter plots:
 
 ```{r spatial lag, fig.width=12}
 
@@ -1151,27 +1192,6 @@ homes.test <- homes.test %>%
     lagPriceError = lag.listw(spatialWeights.test, price.Error)
   )
 
-# ggplot(data = homes.test, aes(x=lagPrice, y=price)) +
-#   geom_point(color = "#fa7800") +
-#   geom_smooth(method = "lm", color = "#25cb10") +
-#   scale_x_continuous(labels = scales::dollar_format()) +
-#   scale_y_continuous(labels = scales::dollar_format()) +
-#   labs(title = "Price as a function of the spatial lag of price",
-#        x = "Spatial lag of price (Mean price of 5 nearest neighbors)",
-#        y = "Price") +
-#   plotTheme()
-# 
-# 
-# ggplot(data = homes.test, aes(x=lagPriceError, y=price.Error)) +
-#   geom_point(color = "#fa7800") +
-#   geom_smooth(method = "lm", color = "#25cb10") +
-#   scale_x_continuous(labels = scales::dollar_format()) +
-#   scale_y_continuous(labels = scales::dollar_format()) +
-#   labs(title = "Error as a function of the spatial lag of error",
-#        x = "Spatial lag of errors (Mean error of 5 nearest neighbors)",
-#        y = "Error") +
-#   plotTheme()
-
 
 grid.arrange(ncol = 2,
              # plot price by spatial lag of price
@@ -1188,7 +1208,7 @@ grid.arrange(ncol = 2,
              ggplot(data = homes.test, aes(x=lagPriceError, y=price.Error)) +
                geom_point(color = "#fa7800") +
                geom_smooth(method = "lm", color = "#25cb10") +
-               scale_x_continuous(labels = scales::dollar_format()) +
+               #scale_x_continuous(labels = scales::dollar_format()) +
                scale_y_continuous(labels = scales::dollar_format()) +
                labs(title = "Error as function of spatial lag of error",
                     x = "Spatial lag of errors \n(Mean error of 5 nearest neighbors)",
@@ -1196,6 +1216,9 @@ grid.arrange(ncol = 2,
                plotTheme()
              )
 ```
+
+On the left, we can see that price and its spatial lag, that is, the mean price of each house's five nearest neighbors, have a clear linear relationship, suggesting there is a strong underlying spatial structure of prices that must be accounted for. The scatter plot on the right, between errors in house prices and the errors of its neighbors is mostly centered around 0, supporting the previous point. However, to be certain that these possible price clusters in space are not random, we perform a **Moran's I** Test:
+
 
 ```{r moran\'s i}
 
@@ -1205,7 +1228,7 @@ grid.arrange(ncol = 2,
 moranTest <- moran.mc(homes.test$price.Error, 
                       spatialWeights.test, nsim = 999)
 
-
+moranTest
 # Plot of the Observed Moran's I and the permutations Moran's I distribution
 ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
   geom_histogram(binwidth = 0.01) +
@@ -1219,7 +1242,7 @@ ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
   plotTheme()
 
 ```
-
+The observed Moran's I test results in a 0.07 statistic, which means that there is not significant clustering but, when comparing it with the random permutation distributions, it appears to be significantly different from 0, meaning that it is not the product of randomness ans there *is* some underlying spatial autocorrelation.
 
 ```{r Spatial lag test summary}
 
@@ -1363,21 +1386,25 @@ st_drop_geometry(bothRegressions) %>%
          caption = "Fig. X.X") + # TODO: number before finalizing
     mapTheme()
 
-# # calculate MAE and MAPE
-# errorTable <- data.frame(
-#   MAE = scales::dollar(mean(homes.test$price.AbsError), accuracy = 0.01),
-#   MAPE = scales::percent(mean(homes.test$price.APE), accuracy = 0.01)
-# )
-# 
-# # generate polished table
-# errorTable %>%
-#   kbl(
-#     caption = "Mean absolute error and mean absolute percent error",
-#     digits = 3,
-#     format.args = list(big.mark = ",")
-#   ) %>%
-#   kable_classic(full_width = F)
+
+
+# calculate MAE and MAPE
+errorTable <- data.frame(
+ MAE = scales::dollar(mean(homes.test$price.AbsError), accuracy = 0.01),
+ MAPE = scales::percent(mean(homes.test$price.APE), accuracy = 0.01)
+)
+
+# generate polished table
+errorTable %>%
+ kbl(
+   caption = "Mean absolute error and mean absolute percent error",
+   digits = 3,
+   format.args = list(big.mark = ",")
+ ) %>%
+ kable_classic(full_width = F)
 ```
+
+
 ```{r MAPE by neighborhood: table}
 
 # Produce a table comparing non-neighborhood effects of a 'Baseline' regression
@@ -1401,11 +1428,9 @@ st_drop_geometry(bothRegressions) %>%
 
 ```
 
-### Scatterplot
+#### MAPE as a function of price by neighborhoods
 
-#### TODO: create this scatterplot - the one below is something else!
 
-> Provide a scatterplot plot of MAPE by neighborhood as a function of mean price by neighborhood.
 
 ```{r MAPE by neighborhood: scatterplot, fig.width=12}
 
@@ -1429,6 +1454,20 @@ bothRegressions %>%
        y = "Predicted price") +
   plotTheme()
 
+
+homes.test %>%
+  dplyr::select(tract, price, price.APE) %>%
+  group_by(tract) %>%
+  summarize(meanPrice = mean(price),
+            MAPE = mean(price.APE)) %>%
+  ggplot(aes(meanPrice, MAPE)) +
+  geom_point(size = 3, color = "#fa7800") +
+  geom_text(aes(label=substr(tract, 7, 11), hjust=-0.15, vjust=0))+
+  labs(title = "Mean price as a function of MAPE by Neighborhood (Census tract)",
+       caption = "Fig. X.X", #TODO: Figure numbering
+       x = "Mean price",
+       y = "Mean Absolute Percentage Error") +
+  plotTheme()
 
 ```
 
