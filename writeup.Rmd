@@ -1,16 +1,14 @@
 ---
-title: "Predictive Modeling of Boulder Home Prices"
-author: "Ericson, E. & León, A."
-date: "10/14/2021"
+title: "Predictive Modeling of Boulder County, Colorado Home Prices"
+author: "Elisabeth Ericson & Adrián León / 89ers"
+date: November 5, 2021
 output: 
   html_document: 
     code_folding: hide
+    toc: true
+    toc_depth: 4
+    toc_float: true
 ---
-
-# Predictive Modeling of Home Prices
-## Boulder, Colorado.
-
-#### Elisabeth Ericson & Adrián León
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F)
@@ -98,7 +96,7 @@ However, this task presented two important challenges. First, we did not take in
 
 We implemented a linear regression-based supervised machine learning model for predicting house prices (explained in more detail in part 3). We built up a pipeline to clean, wrangle, and merge data from various sources; evaluate it, taking out or leaving data elements depending on their usefulness; and testing it for accuracy, obtaining metrics on the efficacy of each model iteration. We repeated the process numerous times to refine the model and obtain the most accurate and generalizable possible results.
 
-Ultimately, we were able to create a model that predicted home prices fairly well across the board, with a mean average percent error (MAPE) solidly under 15 percent. The model performed very well on homes sold for under \$1 million, which represented the majority of homes sold. Its most glaring shortcomings were at the very high end of the home price distribution, with MAPE approaching 40 percent for homes sold for more than \$2 million. These homes constituted a small minority of the sample, but the size of the errors points to the need for more refinement before this model could be considered production-ready.
+Ultimately, we were able to create a model that predicted home prices fairly well across the board, with a mean average percent error (MAPE) solidly under 15 percent. The model performed very well on homes sold for under \$1 million, which represented the majority of homes sold. Its most glaring shortcomings were at the very high end of the home price distribution, with MAPE around 40 percent for homes sold for more than \$2 million. These homes constituted a small minority of the sample, but the size of the errors points to the need for more refinement before this model could be considered production-ready.
 
 We believe this model is a promising first step toward accurately predicting home prices in Boulder County, but further work is necessary to improve its accuracy on the high end of the price range to reduce the risk of further litigation and negative publicity arising from multi-million-dollar prediction errors for the county's most expensive homes.
 
@@ -108,7 +106,7 @@ We believe this model is a promising first step toward accurately predicting hom
 
 ### Data
 
-##### Data Collection
+#### Data Collection
 
 
 
@@ -125,7 +123,7 @@ Given the richness of data from A and C, the data wrangling process focused on s
 
 ***
 
-##### A. Home value data
+#### A. Home value data
 
 We cleaned and recoded the home-level data provided by the assessor's office to remove missing values and engineer new features that resulted in more accurate predictions. We excluded a handful of homes whose records we determined to contain data entry errors, like one home listed in the data as sold for \$31.5 million whose online listing showed an actual sale price of \$315,000. This data set enabled some of our highest-impact feature engineering, including **recoding the quality variable** from an ordinal variable -- with categories ranging from "Low" to "Exceptional 2" -- to a numeric 16-point quality score, and **recoding the year built** from a continuous numeric variable to a categorical "era" variable -- with values from "Pre-1910" to "2020s" -- to account for the nonlinear effect of home age on price.
 
@@ -287,7 +285,7 @@ homeIDs <- data %>%
 
 ***
 
-##### B. Boundaries to represent neighborhoods
+#### B. Boundaries to represent neighborhoods
 
 To account for the effect of spatial autocorrelation -- that is, the tendency of things located closer to each other in space to be more similar than things located farther apart -- we incorporated a "neighborhood" feature into our model. At first, we developed a set of boundaries to subdivide the county by combining municipal boundaries, an open data set defining "subcommunities" for the city of Boulder, and county-level zoning districts for unincorporated areas. Ultimately, however, we found that our model performed better -- and produced lower variance between geographic areas -- when we simply used Census tract boundaries as a proxy for neighborhoods.
 
@@ -366,11 +364,9 @@ tractsData <- st_join(homeIDs, tracts) %>%
 
 ***
 
-##### C. American Community Survey demographic and housing data
+#### C. American Community Survey demographic and housing data
 
 Since we used Census tract boundaries as the spatial unit of analysis, we chose to use block group-level data for our demographic and socioeconomic features. This decision somewhat limited our choice of variables, since not all Census or ACS data is available at the block group level for privacy reasons, but had the benefit of greater spatial granularity and let us attempt to distinguish the effect of the demographic variables from the effects of being in a certain Census tract. 
-
-###### TODO: mention something about specific variables?
 
 A future iteration of this model might experiment with using a spatial interpolation method like [inverse distance weighting](https://en.wikipedia.org/wiki/Inverse_distance_weighting) to attempt to estimate the spatial distribution of demographic or socioeconomic characteristics within a block group or Census tract, with the hypothesis that regions closer to the edges of a block group might more closely resemble neighboring block groups, and/or that the value of those homes might also be affected by the characteristics of nearby areas.
 
@@ -378,14 +374,13 @@ A future iteration of this model might experiment with using a spatial interpola
 
 # --- C. AMERICAN COMMUNITY SURVEY DATA ---
 
-# TODO: remove non-200k+ income variables
+# TODO: remove non-$200k+ income variables
 
 # review available variables
 # acsVariableList <- load_variables(year,"acs5", cache = TRUE)
 
 # define variables to import
-# TODO: probably get rid of <$100k income group; highly colinear
-# TODO: maybe also get rid of occupancy, vacancy?
+# TODO: maybe get rid of occupancy, vacancy?
 acsVars <- c("B02001_001E", # race: total
            "B02001_002E", # race: white alone
            'B25003_001E', # tenure: occupied housing units
@@ -510,9 +505,9 @@ censusData <- st_join(homeIDs, blockGroupBoundaries) %>%
 ```
 ***
 
-##### D. Climate risk-related open data
+#### D. Climate risk-related open data
 
-To account for the possible effect of environmental disaster risk on home values, we incorporated **wildfire history** and **flood risk** into our model. We experimented with multiple iterations of the wildfire feature and found that the _number of wildfires within a two-mile radius of a home within the last 20 years_ was more predictive than whether or not a home was in an area that had burned, or a home's distance from the closest recent wildfire.
+To account for the possible effect of environmental disaster risk on home values, we incorporated **wildfire history** and **flood risk** into our model. We experimented with multiple iterations of the wildfire feature and found that the _number of wildfires within a two-mile radius of a home within the last 20 years_ was more predictive than whether or not a home was in an area that had burned, or a home's distance from the closest recent wildfire. However, as discussed below, this turned out to be for reasons completely unrelated to the risk of fires.
 
 For flood risk, we relied on the Federal Emergency Management Agency (FEMA) flood insurance rating scheme to assign each home a flood risk rating from 0 to 2, representing minimal, low to moderate, and high risk. Under this system, homeowners in a "high" risk zone are required to purchase flood insurance and those in a "low to moderate" have the option to purchase it. We hypothesized that the additional cost to the homeowner of needing to purchase flood insurance might be priced into home values regardless of the buyer's sensitivity to risk.
 
@@ -569,9 +564,17 @@ floodData <- floodRecode %>%
 ```
 ***
 
-##### E. Experimental open data
+#### E. Experimental open data
 
-Finally, we incorporated three "experimental" features whose potential effect we were uncertain of, but which we thought were potentially interesting. First, since Colorado was one of the first states nationally to legalize recreational cannabis, we drew from a countywide data set of marijuana licenses to obtain the locations of recreational dispensaries (as distinct from growing operations, medical clinics, and other types of establishment also included in the data set). Second, we geocoded the locations of Whole Foods Market stores, which have been described as [the Lewis and Clark of gentrification](https://www.smartcitiesdive.com/ex/sustainablecitiescollective/whole-foods-lewis-and-clark-gentrification/181221/). Finally, we included distance from major highways, which has the potential to affect home values in two ways: on one hand, a location very close to a highway is associated with poor air quality and noise pollution; on the other hand, being "close but not _too_ close" could be desirable from a commuting standpoint.
+Lastly, we incorporated three "experimental" features whose potential effect we were uncertain of, but which we thought were potentially interesting. 
+
+First, since Colorado was one of the first states nationally to legalize recreational cannabis, we drew from a countywide data set of marijuana licenses to obtain the locations of recreational dispensaries (as distinct from growing operations, medical clinics, and other types of establishment also included in the data set). 
+
+Second, we geocoded the locations of Whole Foods Market stores, which have been described as [the Lewis and Clark of gentrification](https://www.smartcitiesdive.com/ex/sustainablecitiescollective/whole-foods-lewis-and-clark-gentrification/181221/). 
+
+Third, we included distance from major highways, which has the potential to affect home values in two ways: on one hand, a location very close to a highway is associated with poor air quality and noise pollution; on the other hand, being "close but not _too_ close" could be desirable from a commuting standpoint. We found that the model's predictions improved slightly when we log-transformed the highway distance feature, perhaps because it better captured this nonlinear effect of highway proximity on quality of life.
+
+Unexpectedly, the model's predictions did not seem to improve when we log-transformed the other two distance variables. We speculated that, because the dispensaries and Whole Foods stores were all located in or near the cities of Boulder and Longmont, distance from them may have acted as a proxy for distance from an urban area more than capturing the particular characteristics of those establishments.
 
 ```{r data: experimental open data}
 
@@ -615,10 +618,9 @@ coloradoHighways <- st_read('HighwaysByFunctionalClass.geojson') %>%
   # merge features to avoid distance matrix
   st_union(.)
 
-# calculate distance from highways and save
-# TODO: log transform after all?
+# calculate normalized distance from highways and save
 highwayData <- homeIDs %>%
-  mutate(highwayDistance = drop_units(st_distance(., coloradoHighways))) %>%
+  mutate(logHighwayDistance = log(drop_units(st_distance(., coloradoHighways)))) %>%
   st_drop_geometry()
 
 # E. --- COMBINE ALL ---
@@ -634,10 +636,9 @@ finalData <- left_join(homeData, censusData) %>%
 ```
 ***
 
-##### Summary Statistics
+#### Summary Statistics
 
-
-Here is a table of summary statistics for the numeric variables in our final data set.
+Here is a table of summary statistics for the numeric variables in our final data set. (Obviously, the "Price" and "Log-normalized price" variables were not used in the regression.)
 
 ```{r summary statistics, results = "asis"}
 
@@ -646,16 +647,46 @@ summaryStatsData <- finalData %>%
   dplyr::select(-toPredict, -MUSA_ID) %>%
   st_drop_geometry()
 
-stargazer(summaryStatsData, type = "html")
+stargazer(summaryStatsData, 
+          type = "html",
+          covariate.labels = c("Price", 
+          "Percent of construction complete", 
+          "Year of last major renovation",
+          "Basement square feet",
+          "Car storage square feet",
+          "Number of bedrooms",
+          "Number of rooms, excluding baths",
+          "Main floor square feet",
+          "Number of three-quarter baths",
+          "Number of full baths",
+          "Number of half baths",
+          "Total finished square feet",
+          "Log-normalized price",
+          "Has basement",
+          "Has garage",
+          "Has air conditioning",
+          "Quality score",
+          "More than one use in single building",
+          "Percent white population",
+          "Percent vacant homes",
+          "Percent owner-occupied homes",
+          "Percent population with bachelor's degree or higher",
+          "Percent households with income above $200,000",
+          "Wildfires within two miles in last 20 years",
+          "Flood risk rating",
+          "Distance from dispensary",
+          "Distance from Whole Foods",
+          "Normalized distance from highway")
+)
 
 ```
 
 ***
 
-##### Correlation Matrix
+#### Correlation Matrix
 
 
-The correlation matrix shows the strength of the correlation between each of our numeric variables is to each of the others. As we refined our model, we were surprised to fined that excluding collinear variables -- that is, variables strongly correlated with others in the model -- hurt, rather than helped, the accuracy of our predictions.
+The correlation matrix shows the strength of the correlation between each of our numeric variables and each of the others. As we refined our model, we were surprised to find that excluding collinear variables -- that is, variables strongly correlated with others in the model -- hurt, rather than helped, the accuracy of our predictions.
 
 Our research into this suggested that multicollinearity is most damaging when attempting to isolate the effect of any one predictor on a dependent variable, which was not a concern here. We found a range of opinions online about the extent to which multicollinearity causes problems in a machine learning context, but ultimately chose to worry less about multicollinearity than about accuracy for the purposes of this model.
 
@@ -680,45 +711,75 @@ ggcorrplot(
    insig = "blank",
    hc.order = T
 ) +
-  labs(title = "Correlation across numeric variables") +
+  labs(title = "Correlation across numeric variables",
+       caption = "Fig. 1") +
   plotTheme()
 
 
 ```
 
-##### Interesting Correlations
+#### Interesting Correlations
 
-> Present 4 home price correlation scatterplots that you think are of interest. I’m going to look for **interesting open data** that you’ve integrated with the home sale observations.
+Contrary to our hypothesis, we found virtually no correlation between flood risk and home prices. Looking into this further, we found [recent research](https://www.pnas.org/content/118/17/e2003374118) finding that flood risk tends not to be priced into home values, and that houses in flood zones may be overvalued by a total of nearly $44 billion nationwide.
 
-###### TODO: briefly summarize scatterplots
+The wildfire plot can only be taken as definitive proof that each additional fire in a two-mile radius causes your home's value to rise... or, more likely, it is a completely spurious correlation explained by the fact that the part of the county with the most expensive homes is particularly fire-prone.
+
+Of the American Community Survey variables we looked at, we found that the share of the population in a block group with at least a bachelor's degree was most strongly correlated with home prices, closely followed by the share of households with an income of at least \$200,000.
+
+We found a weak but positive correlation between normalized distance from a highway and home price.
 
 ```{r correlation scatterplots, fig.width=10}
 
-# TODO: select four variables to plot:
-# probably pctIncomeAbove200k, pctHigherEdu, wildfireHistory, floodRisk?
-correlationVars <- c("qualityNum", "pctHigherEdu", "pctIncomeAbove200k", "wildfireHistory", "floodRisk")
+# select four variables to plot:
+correlationVars <- c("floodRisk", "wildfireHistory", "logHighwayDistance", "pctHigherEdu")
+
+#correlationVars2 <- c("wildfireHistory", "floodRisk", "highwayDistance", "wholeFoodsDistance", "dispensaryDistance", "pctHigherEdu")
 
 # create scatterplots
 st_drop_geometry(finalData) %>%
-  dplyr::select(price, starts_with("pct")) %>%
+  dplyr::select(price, correlationVars) %>%
   pivot_longer(cols = !price, names_to = "Variable", values_to = "Value") %>%
   ggplot(aes(Value, price)) +
     geom_point(size = 0.5) +
     geom_smooth(method = "lm", color = "#fa7800") +
     scale_y_continuous(labels = scales::dollar_format()) +
-    facet_wrap(~Variable, ncol = 3, scales = "free_x") +
-    labs(title = "Price as a function of numeric variables") +
+    facet_wrap(~Variable, ncol = 4, scales = "free_x") +
+    labs(title = "Price as a function of numeric variables",
+         caption = "Fig. 2") +
     plotTheme()
 
 ```
 
-##### Spatial Distribution of Sale Prices
+#### Spatial Distribution of Sale Prices
 
-> TODO: briefly describe spatial distribution?
+As the maps below show, the highest home prices were found on the west side -- and particularly in the northwest -- of the city of Boulder, along with the city's western suburbs. A handful of suburban or exurban Census tracts between Boulder and Denver, as well as one between Boulder and Longmont, also had high mean sale prices, but contained relatively few homes overall. Prices were lowest within the city of Longmont and in the rural mountain area in the northwest corner of Boulder County.
 
-``` {r spatial distribution of sale prices, fig.width = 10}
+``` {r spatial distribution of sale prices}
 
-# --- 1. sale price by Census tract ---
+# --- 1. prices of individual homes ---
+
+# map individual home prices
+ggplot() +
+  geom_sf(data = countyLimits, fill = "gray99") +
+  geom_sf(
+    data = homeData %>% 
+      arrange(price),
+    size = 1,
+    aes(color = price)
+  ) +
+  geom_sf(data = munis, fill = "transparent", lwd = 0.5) +
+  scale_color_viridis_c("Sale price",
+                       direction = -1, 
+                       option = "D") +
+  geom_sf(data = countyLimits, fill = "transparent") +
+  labs(
+    title = "Spatial distribution of sale prices",
+    subtitle = "Individual homes relative to county and municipality boundaries",
+    caption = "Fig. 3"
+  ) +
+  mapTheme()
+
+# --- 2. sale price by Census tract ---
 
 # calculate mean sale price by tract
 priceByTract <- finalData %>%
@@ -748,87 +809,18 @@ ggplot() +
   labs(
     title = "Spatial distribution of home prices",
     subtitle = "Mean sale price by Census tract",
-    caption = "Fig. X.X" # TODO: number figure before finalizing
+    caption = "Fig. 4"
   ) +
   mapTheme()
-
-# --- 2. individual home sale prices ---
-
-# map individual home prices
-ggplot() +
-  geom_sf(data = countyLimits, fill = "gray99") +
-  geom_sf(
-    data = homeData,
-    size = 1,
-    aes(color = price)
-  ) +
-  geom_sf(data = munis, fill = "transparent", lwd = 0.5) +
-  scale_color_viridis_c("Sale price",
-                       direction = -1, 
-                       option = "D") +
-  geom_sf(data = countyLimits, fill = "transparent") +
-  labs(
-    title = "Spatial distribution of sale prices",
-    subtitle = "Individual homes relative to county and municipality boundaries",
-    caption = "Fig. X.X" # TODO: number figure before finalizing
-  ) +
-  mapTheme()
-
-
-# --- combined plot ---
-
-grid.arrange(ncol = 2,
-  ggplot() +
-  geom_sf(
-    data = priceByTract, 
-    aes(fill = meanPrice),
-    lwd = 0.1,
-    color = "black",
-    alpha = 0.7
-  ) +
-  scale_fill_viridis_c("Mean price",
-                       direction = -1,
-                       option = "G",
-                       labels = scales::dollar_format()) +
-  geom_sf(data = countyLimits, fill = "transparent") +
-  labs(
-    title = "Spatial distribution of home prices",
-    subtitle = "Mean sale price by Census tract",
-    caption = "Fig. X.X" # TODO: number figure before finalizing
-  ) +
-  mapTheme(),
-  ggplot() +
-  geom_sf(data = countyLimits, fill = "gray99") +
-  geom_sf(
-    data = homeData,
-    size = 1,
-    aes(color = price)
-  ) +
-  geom_sf(data = munis, fill = "transparent", lwd = 0.5) +
-  scale_color_viridis_c("Price",
-                       direction = -1, 
-                       option = "D",
-                       labels = scales::dollar_format()) +
-  geom_sf(data = countyLimits, fill = "transparent") +
-  labs(
-    title = "Spatial distribution of sale prices",
-    subtitle = "Individual homes with municipal boundaries",
-    caption = "Fig. X. X" # number figure before finalizing
-  ) +
-  mapTheme()
-)
 
 ```
 
 
 ***
 
+#### Spatial Distribution of Predictors
 
-##### Spatial Distribution of Predictors
-
-
-Three of the potential predictors of interest that we considered initially were the distribution of historical wildfires, of marijuana dispensaries and distance to highways.
-
+The maps below show the spatial distribution of three of our predictors derived from open data: wildfire history, distance from recreational cannabis dispensaries and distance from highways. As you can see, the cluster of wildfires aligns quite closely with the cluster of expensive homes on the northwestern side of the city of Boulder.
 
 ```{r spatial distribution of predictors: wildfires}
 
@@ -840,11 +832,9 @@ Three of the potential predictors of interest that we considered initially were 
   scale_color_viridis_c("Fires", option = "B", breaks = c(0, 2, 4, 6, 8)) +
   labs(title = "Wildfires within two miles in last 20 years",
        subtitle = "Individual homes relative to Census tracts",
-       caption = "Fig. X.X") + # TODO: number before finalizing
+       caption = "Fig. 5") +
   mapTheme()
 ```
-
-> TODO: briefly describe wildfires map
 
 ```{r spatial distribution of predictors: dispensaries}
 
@@ -858,14 +848,10 @@ ggplot() +
   scale_fill_manual("", labels = "Dispensary", values = "black") +
   labs(title = "Distance to recreational cannabis dispensary",
        subtitle = "Individual homes with Census tracts and dispensary locations",
-       caption = "Fig. X.X") + # TODO: number before finalizing
+       caption = "Fig. 6") +
   mapTheme()
 
 ```
-
-
-> TODO: briefly describe dispensaries map
-
 
 ```{r spatial distribution of predictors: highways}
 
@@ -873,59 +859,41 @@ ggplot() +
 ggplot() +
   geom_sf(data = countyLimits, fill = "gray98", color = "gray95", lwd = 0.5) +
   geom_sf(data = st_crop(coloradoHighways, countyLimits), color = "gray90", lwd = 3) +
-  geom_sf(data = finalData, aes(color = highwayDistance)) +
-  scale_color_viridis_c("Distance \nin meters", option = "E", label = scales::comma) +
-  labs(title = "Distance from nearest highway",
+  geom_sf(data = finalData, aes(color = logHighwayDistance)) +
+  scale_color_viridis_c("Log of distance \nin meters", option = "E", label = scales::comma) +
+  labs(title = "Normalized distance from nearest highway",
        subtitle = "Individual homes relative to highway network",
-       caption = "Fig. X.X") +
+       caption = "Fig. 7") +
   mapTheme()
 
 ```
-
-> TODO: briefly describe highways map
-
-
-
-***
-
-
-
-##### Additional Visualizations
-
-> Include any other maps/graphs/charts you think might be of interest. No? I think
-
 
 ***
 
 
 ### Methods
 
+Developing and refining a machine learning model is not a linear process, but rather a cyclical and iterative one. Nevertheless, we outline a series of steps we used to develop and test the model
 
-Developing and refining a machine learning model is not a linear process, but rather a cyclical and iterative one. Nevertheless, there is a series of continuous steps that are laid out to test each version of the model.
+First, we looked into the correspondence (or _correlation_) between the sample home prices and each of the input (or _dependent_) variables. We visualized this as individual scatterplots or as an overall matrix diagram that summarizes correlations among all variables, so we can get an initial sense of which data is useful and which is too redundant.
 
-First, we look into the correspondence (or _correlation_) between the sample home prices and each of the input (or _dependent_) variables. We visualize this as individual scatter plots or as an overall matrix diagram that summarizes correlations among all variables, so we can get an initial sense of which data is useful and which is too redundant.
+Second, we performed a linear regression: a method for determining how much home prices change by each additional unit of the input variables, informing us of not only their individual effectiveness but also of their aggregate power. This way we could further evaluate which data should make it into our model.
 
-Second, we perform a linear regression: a method for determining how much home prices change by each additional unit of the input variables, informing us of not only their individual effectiveness but also of their aggregate power. This way we can further evaluate which data should make it into our model.
+The next step, cross-validation, divides the data into two groups: a ‘training’ set that establishes the coefficients between variables and known house prices, and a ‘test’ set on which to predict house prices using these coefficients. By comparing the predicted values with the real ones, we measure the amount of error in our model, meaning **_how wrong_** our predictions are, or alternatively, **_how precisely_** our model can predict. At this point we also checked for _outliers_ with unusually high prediction errors and assessed whether to exclude them from the training set.
 
-The next step, cross-validation, divides the data into two groups: a ‘training’ set that establishes the coefficients between variables and known house prices, and a ‘test’ set on which to predict house prices using these coefficients. By comparing the predicted values with the real ones, we measure the amount of error in our model, meaning **_how wrong_** our predictions are, or alternatively, **_how precisely_** can our model predict. At this point we also check for _outliers_ that may have a significantly extreme error in price and, using other tools like Google Maps, we assess if they should be excluded from our model.
+We reran the regression and cross-validation steps numerous times, systematically tracking the effect of changes to the model -- such as including or excluding certain data sets or features, or reengineering features for greater predictive strength -- on accuracy metrics.
 
-On top of that, we test our model in various ways to check whether it predicts significantly better in some places than in others, by looking for errors clustered in space. The first test, called _spatial lag_, averages the price error of each sample with its neighbors. The second one, _Moran’s I_, is used to prove that there is an underlying spatial structure that clusters together similar prices, instead of prices just being randomly distributed. Finally, we check for _neighborhood effects_, comparing the amount of error if neighborhoods are accounted for or not.
+On top of that, we tested our model in various ways to check whether it predicted significantly better in some places than in others, by looking for errors clustered in space. The first test, called _spatial lag_, averages the price error of each sample with its neighbors. The second one, _Moran’s I_, is used to prove that there is an underlying spatial structure that clusters together similar prices, instead of prices just being randomly distributed. Finally, we checked for _neighborhood effects_, comparing the amount of error if neighborhoods are accounted for or not.
 
-Finally, we tested the generalizability of our model by comparing the distribution of the errors left in the model with the income context, namely, a map of the neighborhoods where most people have an income below the county median versus those where most people have an income above it.
-
+Finally, we tested the generalizability of our model by comparing the distribution of the errors left in the model between different income contexts, defined as neighborhoods with a median income above or below the county median.
 
 ***
 
-
 ### Results
 
+#### Regression Results
 
-
-##### Regression Results
-
-
-
-Because each of Boulder County's 68 Census tracts appears as a separate categorical variable in the regression results, we include the full results table as an _Appendix_ at the end of this document.
+For the sake of legibility, and because each of Boulder County's 68 Census tracts appears as a separate categorical variable in the regression results, we include the full results table as an _Appendix_ at the end of this document.
 
 ```{r regression results, results = "asis"}
 
@@ -963,9 +931,9 @@ reg.training <- lm(logPrice ~ .,
 
 ***
 
-##### MAE and MAPE
+#### MAE and MAPE
 
-The mean absolute error (MAE) and mean absolute percentage error (MAPE) of predicted home prices produced by our model is the following: 
+Our model produced the following mean absolute error (MAE) and mean absolute percentage error (MAPE) of predicted home prices:
 
 
 ```{r MAE and MAPE, results = "asis"}
@@ -1001,12 +969,11 @@ errorTable %>%
 
 ***
 
-##### Cross-Validation Results
+#### Cross-Validation Results
 
+We performed **k-fold cross-validation**, which means dividing the sample into 100 groups (or "folds") and removing one, training the model on the other 99 and testing it on the one left out, and then repeating the process by taking out each of the other 99 one at a time.
 
-We perform a Leave One Group Out Cross Validation (LOGO-CV), meaning to take one out of a hundred groups of samples, training the model on the other 99 and testing it on the one left out, and then repeating the process by taking out each of the other 99 one at a time.
-
-The distribution of the 100 Mean Average Errors looks like this:
+Over the 100 iterations, the distribution of mean average errors looked like this:
 
 ```{r k-fold cross-validation: histogram}
 
@@ -1039,13 +1006,13 @@ ggplot() +
   scale_x_continuous(breaks = round(seq(min(allMAE.df$MAE), max(allMAE.df$MAE), by = 0.02), 2)) +
   labs(title = "Distribution of mean absolute error",
        subtitle = "k-fold cross-validation; k = 100",
-       caption = "Fig. X.X",
+       caption = "Fig. 8",
        x = "MAE",
-       y = "Folds") + # TODO: number before finalizing
+       y = "Folds") +
   plotTheme()
 ```
 
-And the summary is:
+The table below shows the mean and standard deviation of MAE across all 100 folds.
 
 ```{r k-fold cross-validation: table, results = "asis"}
 # calculate mean and standard deviation MAE
@@ -1062,14 +1029,11 @@ validationTable %>%
 
 ```
 
+#### Predicted vs. Observed Prices
 
-##### Predicted vs. Observed Prices
-
-The relation between the sample home prices and our model's predicted home prices can be visualized on this scatte rplot, where the orange line represents what would be a perfect prediction and the green one our average prediction fit.
+The scatterplot below visualizes the relationship between actual and predicted home prices. The average prediction starts out fairly close to the average actual price, but the lines diverge dramatically as prices rise. 
 
 ```{r predicted vs. observed price}
-
-# TODO: note low accuracy on the high end in writeup; discuss possible reasons
 
 # plot predicted prices as function of observed prices
 ggplot(data = homes.test, 
@@ -1082,13 +1046,14 @@ ggplot(data = homes.test,
   scale_y_continuous(labels = scales::dollar_format()) +
   labs(title = "Predicted sale price as a function of observed price",
        subtitle = "Orange line represents a perfect prediction; green line represents average prediction",
+       caption = "Fig. 9",
        x = "Price",
        y = "Predicted price") +
   plotTheme()
 ```
 
 
-The lines are close but it is still far from perfect. However, if isolate the homes with prices *below* \$1 Million it is evident that our prediction is much closer to their real value. On the other hand, if we just consider houses with prices *above* \$2 Million, we see that our model performs more poorly.
+Splitting the data into two groups, we can see that the model actually performs quite well for homes priced below \$1 million, but extremely poorly for homes priced above \$2 million.
 
 
 ```{r predicted vs. observed price: by price, fig.width=12, fig.height=4}
@@ -1122,6 +1087,7 @@ grid.arrange(ncol = 2,
                scale_y_continuous(labels = scales::dollar_format()) +
                labs(title = "Predicted price as function of observed price, \nhomes under $1 million",
                     subtitle = "Orange line represents a perfect prediction; \ngreen line represents average prediction",
+                    caption = "Fig. 10",
                     x = "Price",
                     y = "Predicted price") +
                plotTheme(),
@@ -1139,7 +1105,7 @@ grid.arrange(ncol = 2,
              )
 ```
 
-In addition, the mean average error and mean average percentage error for these two 'price groups' are the following: 
+The discrepancy in mean average error and mean average percentage error for the two subsets underscores the size of the problem:
 
 
 ```{r MAE and MAPE: by price, results="asis"}
@@ -1165,16 +1131,42 @@ rbind(
 
 ***
 
+#### Residuals, Moran's I, and Spatial Lag
 
-##### Residuals, Moran's I, and Spatial Lag
-
-We can visualize the distribution of the errors on our test in the following map: 
+The two maps below show the distribution of prediction errors:
 
 ```{r test set residuals}
 
 # --- Residuals ---
-
 # map residuals for test set
+ggplot() +
+  geom_sf(data = countyLimits, fill = "gray99") +
+  geom_sf(
+    data = homes.test %>%
+      arrange(price.AbsError),
+    size = 2,
+    aes(color = price.Error, 
+        alpha = price.AbsError),
+  ) +
+  geom_sf(data = munis, fill = "transparent", size = 0.5) +
+  scale_color_gradient("Prediction error",
+                       low = "#fa7800",
+                       high = "#25cb10",
+                       label = scales::dollar_format()) +
+  scale_alpha_continuous(range = c(0.2, 1),
+                         guide = "none") +
+  geom_sf(data = countyLimits, fill = "transparent") +
+  labs(
+    title = "Spatial distribution of prediction errors",
+    subtitle = "Individual homes relative to county and municipal boundaries",
+    caption = "Fig. 11"
+  ) +
+  mapTheme()
+
+
+# --- Residuals v2 ---
+
+# map residuals for test set - modified
 ggplot() +
   geom_sf(data = tracts, fill = "#2f2f2f") +
   geom_sf(
@@ -1196,14 +1188,14 @@ ggplot() +
   labs(
     title = "Spatial distribution of prediction errors",
     subtitle = "Individual homes relative to county and census tract boundaries",
-    caption = "Fig. X.X" # TODO: number figure before finalizing
+    caption = "Fig. 12"
   ) +
   mapTheme()
 ```
 
 As we can notice, the greatest price errors (variations in color from white) occur in mostly in the more expensive houses (with a larger circle).
 
-Next, if we look into the relation between the price and spatial lag of price, and price error and spatial lag of price error we get the following scatter plots:
+Next, if we look into the relation between the price and spatial lag of price, and price error and spatial lag of price error we get the following scatterplots:
 
 ```{r spatial lag, fig.width=12}
 
@@ -1231,6 +1223,7 @@ grid.arrange(ncol = 2,
                scale_x_continuous(labels = scales::dollar_format()) +
                scale_y_continuous(labels = scales::dollar_format()) +
                labs(title = "Price as function of spatial lag of price",
+                    caption = "Fig. 13",
                     x = "Spatial lag of price \n(Mean price of 5 nearest neighbors)",
                     y = "Price") +
                plotTheme(),
@@ -1238,16 +1231,17 @@ grid.arrange(ncol = 2,
              ggplot(data = homes.test, aes(x=lagPriceError, y=price.Error)) +
                geom_point(color = "#fa7800") +
                geom_smooth(method = "lm", color = "#25cb10") +
-               #scale_x_continuous(labels = scales::dollar_format()) +
+               scale_x_continuous(labels = scales::dollar_format()) +
                scale_y_continuous(labels = scales::dollar_format()) +
                labs(title = "Error as function of spatial lag of error",
                     x = "Spatial lag of errors \n(Mean error of 5 nearest neighbors)",
                     y = "Error") +
                plotTheme()
              )
-```
+``` 
 
-On the left, we can see that price and its spatial lag, that is, the mean price of each house's five nearest neighbors, have a clear linear relationship, suggesting there is a strong underlying spatial structure of prices that must be accounted for. The scatter plot on the right, between errors in house prices and the errors of its neighbors is mostly centered around 0, supporting the previous point. However, to be certain that these possible price clusters in space are not random, we perform a **Moran's I** Test:
+
+On the left, we can see that price and its spatial lag, that is, the mean price of each house's five nearest neighbors, have a clear linear relationship, suggesting there is a strong underlying spatial structure of prices that must be accounted for. The scatterplot on the right, between errors in house prices and the errors of its neighbors is mostly centered around 0, supporting the previous point. However, to be certain that these possible price clusters in space are not random, we perform a **Moran's I** Test:
 
 
 ```{r moran\'s i}
@@ -1266,45 +1260,23 @@ ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
   scale_x_continuous(limits = c(-1, 1)) +
   labs(title = "Observed and permuted Moran's I",
        subtitle = "Observed Moran's I in orange",
-       caption = "Fig. X.X",
+       caption = "Fig. 14",
        x="Moran's I",
        y="Count") +
   plotTheme()
 
 ```
 
-The observed Moran's I test results in a 0.07 statistic, which means that there is not significant clustering but, when comparing it with the random permutation distributions, it appears to be significantly different from 0, meaning that it is not the product of randomness ans there *is* some underlying spatial autocorrelation.
-
-
-```{r Spatial lag test summary}
-
-# TODO: figure out what on earth is going on here
-left_join(
-  st_drop_geometry(homes.test) %>%
-    group_by(tract) %>%
-    summarize(meanPrice = mean(price, na.rm = T)),
-  mutate(homes.test, predict.fe = 
-           predict(lm(price ~ tract, data = homes.test), 
-                   homes.test)) %>%
-    st_drop_geometry %>%
-    group_by(tract) %>%
-    summarize(meanPrediction = mean(predict.fe))) %>%
-  mutate(tract = substr(tract, 7,11)) %>%
-  kbl(
-    digits = 3,
-    format.args = list(big.mark = ",")
-  ) %>%
-  kable_classic(full_width = F, position = "center")
-
-```
+The observed Moran's I test results in a 0.07 statistic, which means that there is not significant clustering but, when comparing it with the random permutation distributions, it appears to be significantly different from 0, meaning that it is not the product of randomness and there *is* some underlying spatial autocorrelation.
 
 ***
 
-##### Map of Predicted Values
+#### Map of Predicted Values
 
-The distribution of our model's predicted home values, differentiated by color looks like this:
+The map below shows the spatial distribution of predicted prices. It resembles the map of actual prices shown above, but the systematic underprediction -- and rare extreme overprediction -- at the high end of the price range is visible on the map.
 
-```{r spatial distribution of predicted values}
+
+```{r spatial distribution of predicted prices}
 
 # --- generate predictions ---
 
@@ -1348,18 +1320,20 @@ ggplot() +
                        labels = scales::dollar_format()) +
   geom_sf(data = countyLimits, fill = "transparent") +
   labs(
-    title = "Spatial distribution of sale prices",
+    title = "Spatial distribution of predicted prices",
     subtitle = "Individual homes relative to municipal boundaries",
-    caption = "Fig. X.X" # TODO: number figure before finalizing
+    caption = "Fig. 15"
   ) +
   mapTheme()
 
 ```
 ***
 
-##### Mean Absolute Percentage Error by Neighborhood
+#### Mean Absolute Percentage Error by Neighborhood
 
-Using the **test set** predictions we provide a map of mean absolute percentage error (MAPE) by neighborhood, comparing our baseline model, without accounting for neighborhoods boundaries, and our final model that includes neighborhoods.
+The maps below show the distribution of mean absolute percentage error (MAPE) by Census tract for two versions of our model: one that makes no attempt to correct for spatial autocorrelation, and the one we used, which uses Census tract as a categorical variable to account for the neighborhood effect. As the maps show, the inclusion of a neighborhood feature substantially improved the accuracy of predictions across the map, but the effect was inconsistent and some tracts continued to show high prediction errors.
+
+Interestingly, even though our model generally performed quite well for lower-priced homes and very poorly for the most expensive ones (as shown above), the Census tracts with the highest MAPE did not always correspond to those with the highest mean home prices (shown under "Spatial Distribution of Home Prices" above). Most notably, the large tract in the northwest corner of the county had among the lowest mean sale prices. In other words, our model's weakness among very high-priced homes does not fully explain the spatial distribution of prediction errors by neighborhood.
 
 ```{r MAPE by neighborhood: map, fig.width=12}
 
@@ -1386,8 +1360,6 @@ homes.test.baseline <-
 mean(homes.test.baseline$price.AbsError) # MAE
 mean(homes.test.baseline$price.APE)      # MAPE
 
-
-# TODO: rejoin tracts to homes.test.baseline?
 bothRegressions <- rbind(
   dplyr::select(homes.test, starts_with("price"), Regression, tract) %>%
   mutate(lagPriceError = lag.listw(spatialWeights.test, price.Error)),
@@ -1408,72 +1380,19 @@ st_drop_geometry(bothRegressions) %>%
     geom_sf(aes(fill = mean.MAPE), color = "gray30", size = 0.2) +
     geom_sf(data = countyLimits, fill = "transparent", 
             color = "gray25", size = 0.5) +
-    # geom_sf(data = bothRegressions, colour = "black", size = .5) +
     facet_wrap(~Regression) +
     scale_fill_viridis_c("MAPE", option = "G", direction = -1, alpha = 0.5, labels = scales::percent_format()) +
-    # scale_fill_gradient(low = palette5[1], high = palette5[5], name = "MAPE") +
     labs(title = "Mean test set MAPE by neighborhood") +
     labs(title = "Mean absolute percent error by Census tract",
          subtitle = "With and without \"neighborhood\" predictor",
-         caption = "Fig. X.X") + # TODO: number before finalizing
+         caption = "Fig. 16") +
     mapTheme()
 
 ```
 
-We can compare the mean average error and mean average percentage error across these two models:
+The scatterplot of mean average percentage error as a function of mean home price by Census tract similarly shows that, while prediction errors were _generally_ higher in Census tracts with a higher mean home price, tracts with much lower mean sale prices were sometimes among those with the highest prediction errors.
 
-
-```{r MAPE by neighborhood: table}
-
-# Produce a table comparing non-neighborhood effects of a 'Baseline' regression
-st_drop_geometry(bothRegressions) %>%
-  gather(Variable, Value, -Regression, -tract) %>%
-  filter(Variable == "price.AbsError" | Variable == "price.APE") %>%
-  group_by(Regression, Variable) %>%
-    summarize(meanValue = mean(Value, na.rm = T)) %>%
-    spread(Variable, meanValue) %>%
-  mutate(
-    price.AbsError = scales::dollar(price.AbsError, accuracy = 0.01),
-    price.APE = scales::percent(price.APE, accuracy = 0.01)
-  ) %>%
-  arrange(desc(price.AbsError)) %>%
-    kable(
-      digits = 3,
-      format.args = list(big.mark = ",")
-    ) %>% 
-  kable_classic(full_width = F, position = "center")
-
-```
-
-
-And also compare the performance of both models by the relation in each between actual home prices and predicted home prices:
-
-
-```{r maps: baseline and neighborhood comparison 2}
-
-# plot MAPE by neighborhood as function of mean price by neighborhood
-bothRegressions %>%
-  dplyr::select(price.Predict, price, Regression) %>%
-  ggplot(aes(price, price.Predict)) +
-  geom_point() +
-  stat_smooth(aes(price, price), 
-             method = "lm", se = FALSE, size = 1, colour="#FA7800") + 
-  stat_smooth(aes(price.Predict, price), 
-              method = "lm", se = FALSE, size = 1, colour="#25CB10") +
-  # scale_x_continuous(scales::dollar_format()) +
-  # scale_y_continuous(scales::dollar_format()) +
-  facet_wrap(~Regression) +
-  labs(title = "Predicted sale price as a function of observed price",
-       subtitle = "Orange line represents a perfect prediction; Green line represents prediction",
-       caption = "Fig. X.X",
-       x = "Price",
-       y = "Predicted price") +
-  plotTheme()
-```
-
-Finally, we can also look into the relation of mean average percentage error with the mean price of houses across neighborhoods.
-
-```{r MAPE by neighborhood: scatterplot, fig.width=12}
+```{r MAPE by neighborhood: scatterplot}
 
 homes.test %>%
   dplyr::select(tract, price, price.APE) %>%
@@ -1481,10 +1400,13 @@ homes.test %>%
   summarize(meanPrice = mean(price),
             MAPE = mean(price.APE)) %>%
   ggplot(aes(meanPrice, MAPE)) +
+  geom_smooth(method = "lm", color = "#25cb10") +
   geom_point(size = 3, color = "#fa7800") +
-  geom_text(aes(label=substr(tract, 7, 11), hjust=-0.15, vjust=0))+
-  labs(title = "Mean price as a function of MAPE by Neighborhood (Census tract)",
-       caption = "Fig. X.X", #TODO: Figure numbering
+  geom_text(aes(label=substr(tract, 7, 11), hjust=-0.15, vjust=0)) +
+  scale_x_continuous(labels = scales::dollar_format()) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Mean price as a function of MAPE by Census tract",
+       caption = "Fig. 17",
        x = "Mean price",
        y = "Mean Absolute Percentage Error") +
   plotTheme()
@@ -1493,11 +1415,11 @@ homes.test %>%
 
 ***
 
-##### Generalizability Across Groups
+#### Generalizability Across Groups
 
-To test the generalizability of our model, we split your city into two groups by the median household income of Boulder County, which was \$83,019 in 2019.
+To test the generalizability of our model, we divided the county's Census tracts into two groups based on the median household income of Boulder County, which was \$83,019 in 2019.
 
-```{r generalizability across groups}
+```{r generalizability across groups: map}
 
 # 7. GENERALIZABILITY TEST
 
@@ -1506,7 +1428,6 @@ incomeTest <- tracts %>%
   mutate(incomeContext = if_else(medianIncome < 83019, "Below median income", "Above median income"))
 
 # Plot the income groups division
-# TODO: figure out WHY the title is centered on this one
 ggplot() +
   geom_sf(data = incomeTest,
           aes(fill = incomeContext),
@@ -1521,16 +1442,20 @@ ggplot() +
           size = 0.5) +
   labs(title = "Classification of Census tracts by income context",
        subtitle = "Tracts above and below $83,019 median household income in 2019",
-       caption = "Fig. X.X") +
+       caption = "Fig. 18") +
   mapTheme() + 
   theme(legend.position="bottom",
         plot.title = element_text(hjust = 0))
 
 
 ```
-Our model seems to be improved by almost the same measure when we add neighborhood boundaries to it, which may be a good sign of its generalizability.
 
-```{r}
+
+On average, our model performed relatively well in both income contexts, but it performed slightly worse in higher-income Census tracts than in lower-income tracts -- consistent with our other findings above.
+
+Including Census tracts as a feature narrowed the gap between the two groups, but did not eliminate it.
+
+```{r generalizability across group: table, results="asis"}
 # test generalizability by income context
 st_join(bothRegressions, incomeTest) %>% 
   group_by(Regression, incomeContext) %>%
@@ -1546,53 +1471,22 @@ st_join(bothRegressions, incomeTest) %>%
 
 
 ### Discussion
+ 
+We consider this a relatively effective model in the aggregate but acknowledge the opportunities for targeted improvements. We were able to reliably predict around 87 percent of the variation in home prices using no more than a simple linear regression model and publicly available open data. 
 
-We consider this to be an effective model because by just using open, easy to access data, it can predict home prices in Boulder County with a confidence of _____ . 
+The single most important feature was Census tract, a proxy for neighborhood that corrected for the effect of spatial autocorrelation. Other high-impact features included quality rating, a numeric recode of a categorical quality variable included in the assessor data, and a categorical variable we created to represent the era or decade during which a home was built. We also found that, because big houses tend to be expensive, our model performed better when we included _all_ the features that captured exactly how big each home was along various dimensions -- even when those features were highly correlated with each other.
 
->>>>What were some of the most interesting variables?  [ADD A THIRD ONE?]<<<<
+The features we derived from open data, including wildfire risk, flood risk, distance from recreational dispensaries, and distance from Whole Foods stores were arguably more _interesting_ from a conceptual standpoint than the Census tracts or home-level features, but their contribution to the model's predictive power was generally very limited despite various attempts at feature engineering. This may suggest that we simply did not use open data effectively, and it would be interesting to see whether other open data sets might improve the model more than the ones we tried.
 
-In the hope of assessing if the increasing effects of climate change have had any effects on the prices of houses in Boulder, we developed two natural disaster-based evaluation variables from data in Boulder County’s Open Data website.
-
-First, we looked into Floodplains Hazard data. In 2013, Boulder was hit by a flood event that destroyed 2000 homes and left [at least $4 billion in damage](https://www.bouldercast.com/the-2013-boulder-flood-two-years-and-three-billion-dollars-later/). This catastrophe led the state to create the [Colorado Hazard Mapping Program (CHAMP)](https://coloradohazardmapping.com/champ), in order to produce more precise flood hazard prediction models, of which the data we incorporated is extracted.
-
-Additionally, we sought to assess the risk of exposure to the [increasingly frequent wildfires in Colorado](https://www.nbcnews.com/news/us-news/3-largest-wildfires-colorado-history-have-occurred-2020-n1244525), using the historical wildfire perimeters in the County, which could be controlled not only by the distance of houses from the combined wildfire extensions, but also by how far back in time events are taken into account (10-, 15- or 20-years ago). We did so by counting the number of wildfire events that have occured from a [two-mile distance](https://www.researchgate.net/publication/222788889_Do_Nearby_Forest_Fires_Cause_A_Reduction_in_Residential_Property_Values) from a home.
-
-
-> How much of the variation in prices could you predict? <
-
-R squared, Abs error, mAPE.???
-
-> Describe the more important features? <
-
-House quality, pct income group? HHvacancy-why?. 
-
-> Describe the error in your predictions? <
-
-> Where is it, how is it distributed in price and space? <
-
->[2x2 maps showing errors in the baseline model vs. errors with ad hoc ‘subcommunities’ as neighborhoods, vs. ‘census tracts’ as neighborhoods]<
-
-Boulder’s Open Data web database does not provide off-the-shelf county-wide neighborhood boundaries, so in order to look into the spatial variation in prices county-wide, we created our own ‘neighborhoods’ by joining a Boulder city ‘subcommunities’ map into the city zoning map and then merging it with the county wide municipalities and unincorporated areas map.
-
-Because of the ad-hoc nature of these boundaries, we tested how well they performed versus the ‘census tracts as neighborhoods’ approach, acknowledging that doing so introduces a certain amount of scale bias into the model. In the end, the census tracts proved to be more effective on a county-wide level because they better differentiate between areas that in our ‘neighborhoods’ were all encompassed as “agricultural” or “forest” areas. 
-
-Since we chose census tracts as neighborhoods, we tried to reduce redundancies and spatial biases (or [MAUP](https://en.wikipedia.org/wiki/Modifiable_areal_unit_problem)) by aggregating the census data on the more granular block group level.
-
->Where did the model predict particularly well? Poorly? Why do you think this might be?<
-
-
-***
-
+While the errors in our predictions were relatively low on average, they were not evenly distributed. Our model performed best for moderately-priced homes sold for less than \$1 million. Homes sold for more than \$2 million represented a small minority of our sample but were associated not just with massive absolute errors, but with an unacceptably high mean average percent error when taken as a subset. In addition, our model performed worse in some Census tracts than in others for reasons that could not fully be explained by variation in home prices; unraveling why would require additional time and research.
 
 ### Conclusion
 
+We would confidently recommend our model to Zillow _as a starting point for further research_, but we would make sure to note its limitations and emphasize the need for targeted refinement. As discussed, our model systematically underpredicted prices at the high end of the distribution, and performed extremely poorly for homes with prices above $2 million. It also performed inconsistently in some Census tracts with lower average home prices.
 
-We would confidently recommend our model to Zillow, but we would make sure to note its limitations. For reasons mentioned before, we consider that a model trained on data from an area as homogeneous and arbitrarily defined as Boulder County is going to inevitably bear a great amount of selection and scale bias that may make it unreliable and not generalizable in more demographically diverse geographies.
+An unanswered question is to what extent this model may or may not generalize to areas outside of Boulder County. As noted in the introduction, Boulder County is very demographically homogeneous, and a model developed and tested there may predict unreliably or inequitably in a more diverse context. A possible avenue for exploration might be to train our model on aggregate data from the ten counties that form the **Denver-Aurora-Lakewood Combined Statistical Area**, of which Boulder is a part.
 
-Nonetheless, we believe our model has a smart approach at selecting and transforming the right internal and external characteristics and services that influence house values, and on which it could be easy to build on to better predict on a more diverse study area. For example, an optimized version of our model could instead be trained on aggregate data from the ten counties that form the **Denver-Aurora-Lakewood Combined Statistical Area**, of which Boulder is a part of.
-
-Additionally, the model can greatly benefit from applying other more powerful and data-specific methods of predictions that we did not implement at the moment.
-
+Additionally, the model could potentially benefit from incorporating additional data sources and more sophisticated modeling techniques, which we did not implement at this time.
 
 ***
 

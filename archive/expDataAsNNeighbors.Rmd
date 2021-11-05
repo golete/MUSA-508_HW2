@@ -1,0 +1,31 @@
+```{r data E: experimental, echo= F, warning=F, error=F, message=F}
+
+# E1. Whole Foods locations
+
+wholefoodsLocations <- st_read("wholefoodsmarkets_boulderCO.csv")
+
+wholefoods <- st_as_sf(wholefoodsLocations, coords = c("lon", "lat"), crs = 4326) %>% #4326
+  dplyr::select(-ID, -phone, -address) %>%
+  st_sf() %>%
+  st_transform(boulderCRS)
+
+cutoffDist = 16100
+wholefoodsData <- subdata %>%
+  mutate(wholeFoods = nn_function(st_coordinates(.), st_coordinates(wholefoods), 1)) %>%
+  mutate(wholeFoods = ifelse(wholeFoods > cutoffDist, cutoffDist, wholeFoods)) %>%
+  st_drop_geometry()
+
+
+
+# E2. Marijuana dispensaries
+
+marijuana <- st_read("Marijuana_Establishments.geojson") %>%
+  dplyr::select(OBJECTID, Type, geometry) %>%
+  st_sf() %>%
+  st_transform(boulderCRS)
+
+marijuanaData <- homeIDs %>%
+  mutate(dispensaries = nn_function(st_coordinates(.), st_coordinates(marijuana), 1)) %>%
+  st_drop_geometry()
+
+```
